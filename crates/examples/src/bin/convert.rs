@@ -154,21 +154,21 @@ fn convert_dwarf<R: gimli::Reader<Offset = usize>, W: gimli::write::Writer>(
             let (mut split_unit, split_root_entry) = convert_split.read_unit()?;
             convert_unit(
                 &mut split_unit,
-                &split_root_entry,
+                split_root_entry,
                 Some(&root_entry),
                 write_sections,
             )?;
         } else {
-            convert_unit(&mut unit, &root_entry, None, write_sections)?;
+            convert_unit(&mut unit, root_entry, None, write_sections)?;
         }
     }
     dwarf.write(write_sections)?;
     Ok(())
 }
 
-fn convert_unit<R: gimli::Reader<Offset = usize>, W: gimli::write::Writer>(
-    unit: &mut gimli::write::ConvertUnit<'_, R>,
-    root_entry: &gimli::write::ConvertUnitEntry<'_, R>,
+fn convert_unit<'a, R: gimli::Reader<Offset = usize>, W: gimli::write::Writer>(
+    unit: &mut gimli::write::ConvertUnit<'a, R>,
+    root_entry: gimli::write::ConvertUnitEntry<'a, R>,
     skeleton_root_entry: Option<&gimli::write::ConvertUnitEntry<'_, R>>,
     write_sections: &mut gimli::write::Sections<W>,
 ) -> gimli::write::ConvertResult<()> {
@@ -190,11 +190,12 @@ fn convert_unit<R: gimli::Reader<Offset = usize>, W: gimli::write::Writer>(
     }
 
     let root_id = unit.unit.root();
-    convert_attributes(unit, root_id, root_entry);
+    convert_attributes(unit, root_id, &root_entry);
     if let Some(skeleton_root_entry) = skeleton_root_entry {
         convert_attributes(unit, root_id, skeleton_root_entry);
     }
-    while let Some((id, entry)) = unit.read_entry()? {
+    let mut entry = root_entry;
+    while let Some(id) = unit.read_entry(&mut entry)? {
         // `id` is `None` for DIEs that were filtered out and thus don't need converting.
         if id.is_none() {
             continue;
@@ -241,7 +242,8 @@ fn filter_dwarf<R: gimli::Reader<Offset = usize>>(
     // DIEs that must also be converted.
     let mut filter = gimli::write::FilterUnitSection::new(dwarf)?;
     while let Some(mut unit) = filter.read_unit()? {
-        while let Some(entry) = unit.read_entry()? {
+        let mut entry = unit.null_entry();
+        while unit.read_entry(&mut entry)? {
             if need_entry(&entry)? {
                 unit.require_entry(entry.offset);
             }

@@ -1628,7 +1628,8 @@ pub(crate) mod convert {
     /// let read_dwarf = gimli::read::Dwarf::load(loader)?;
     /// let mut filter = gimli::write::FilterUnitSection::new(&read_dwarf)?;
     /// while let Some(mut unit) = filter.read_unit()? {
-    ///     while let Some(entry) = unit.read_entry()? {
+    ///     let mut entry = unit.null_entry();
+    ///     while unit.read_entry(&mut entry)? {
     ///         if need_entry(&entry)? {
     ///             unit.require_entry(entry.offset);
     ///         }
@@ -1758,9 +1759,14 @@ pub(crate) mod convert {
             })
         }
 
+        /// Return a null DIE for use with [`FilterUnit::read_entry`].
+        pub fn null_entry(&self) -> FilterUnitEntry<'a, R> {
+            FilterUnitEntry::null(self.read_unit)
+        }
+
         /// Read the next DIE.
         ///
-        /// Returns `None` if the unit has no more DIEs.
+        /// Returns `false` if the unit has no more DIEs.
         ///
         /// This also records dependencies for the DIE:
         /// - the DIE always depends on its parent
@@ -1770,10 +1776,10 @@ pub(crate) mod convert {
         /// The only task the user needs to perform is to call
         /// [`FilterUnit::require_entry`] if the DIE is always required to be
         /// converted. Typically, a DIE will be required if it has a valid address range.
-        pub fn read_entry(&mut self) -> ConvertResult<Option<FilterUnitEntry<'a, R>>> {
+        pub fn read_entry(&mut self, entry: &mut FilterUnitEntry<'a, R>) -> ConvertResult<bool> {
             loop {
                 if self.entries.is_empty() {
-                    return Ok(None);
+                    return Ok(false);
                 }
 
                 // Calculate offset and depth before reading the abbreviation code.
@@ -1802,16 +1808,14 @@ pub(crate) mod convert {
                 }
 
                 let entry_offset = offset.to_unit_section_offset(&self.read_unit);
-                let mut entry = FilterUnitEntry {
-                    read_unit: self.read_unit,
-                    offset,
-                    depth,
-                    tag: abbrev.tag(),
-                    attrs: Vec::new(),
-                    parent: parent.map(|p| p.offset),
-                    parent_tag: parent.map(|p| p.tag),
-                };
-                Self::read_attributes(&mut entry, &mut self.entries, abbrev.attributes())?;
+                entry.read_unit = self.read_unit;
+                entry.offset = offset;
+                entry.depth = depth;
+                entry.tag = abbrev.tag();
+                entry.attrs.clear();
+                entry.parent = parent.map(|p| p.offset);
+                entry.parent_tag = parent.map(|p| p.tag);
+                Self::read_attributes(entry, &mut self.entries, abbrev.attributes())?;
                 let mut deps = Vec::new();
                 for attr in &entry.attrs {
                     self.add_attribute_refs(&mut deps, attr.value())?;
@@ -1825,7 +1829,7 @@ pub(crate) mod convert {
                 }
                 self.deps.add_entry(entry_offset, deps);
 
-                return Ok(Some(entry));
+                return Ok(true);
             }
         }
 
@@ -1994,6 +1998,21 @@ pub(crate) mod convert {
     }
 
     impl<'a, R: Reader<Offset = usize>> FilterUnitEntry<'a, R> {
+        /// Return a null entry.
+        ///
+        /// This can be used with [`FilterUnit::read_entry`],
+        pub fn null(read_unit: read::UnitRef<'a, R>) -> Self {
+            FilterUnitEntry {
+                read_unit,
+                offset: read::UnitOffset(0),
+                depth: 0,
+                tag: constants::DW_TAG_null,
+                attrs: Vec::new(),
+                parent: None,
+                parent_tag: None,
+            }
+        }
+
         /// Return `true` if this entry has an attribute with the given name.
         pub fn has_attr(&self, name: constants::DwAt) -> bool {
             self.attrs.iter().any(|attr| attr.name() == name)
@@ -2189,8 +2208,10 @@ pub(crate) mod convert {
                 read_entries: read_unit.entries_raw(None)?,
                 parents: Vec::new(),
             };
-            let (_id, entry) = unit.read_entry()?.ok_or(read::Error::MissingUnitDie)?;
-            Ok(Some((unit, entry)))
+            let mut root_entry = unit.null_entry();
+            unit.read_entry(&mut root_entry)?
+                .ok_or(read::Error::MissingUnitDie)?;
+            Ok(Some((unit, root_entry)))
         }
     }
 
@@ -2303,8 +2324,10 @@ pub(crate) mod convert {
                 read_entries: read_unit.entries_raw(None)?,
                 parents: Vec::new(),
             };
-            let (_id, entry) = unit.read_entry()?.ok_or(read::Error::MissingUnitDie)?;
-            Ok((unit, entry))
+            let mut root_entry = unit.null_entry();
+            unit.read_entry(&mut root_entry)?
+                .ok_or(read::Error::MissingUnitDie)?;
+            Ok((unit, root_entry))
         }
     }
 
@@ -2362,7 +2385,8 @@ pub(crate) mod convert {
     ///     }
     ///     let root_id = unit.unit.root();
     ///     convert_attributes(&mut unit, root_id, &root_entry)?;
-    ///     while let Some((id, entry)) = unit.read_entry()? {
+    ///     let mut entry = root_entry;
+    ///     while let Some(id) = unit.read_entry(&mut entry)? {
     ///         // `id` is `None` for DIEs that weren't reserved and thus don't need converting.
     ///         // This only happens when `FilterUnitSection` is used.
     ///         if id.is_none() {
@@ -2470,7 +2494,8 @@ pub(crate) mod convert {
         ///     let split_dwarf = dwp.find_cu(dwo_id, skeleton_unit.dwarf)?.unwrap();
         ///     let mut filter = gimli::write::FilterUnitSection::new_split(&split_dwarf, unit.read_unit)?;
         ///     while let Some(mut unit) = filter.read_unit()? {
-        ///         while let Some(entry) = unit.read_entry()? {
+        ///         let mut entry = unit.null_entry();
+        ///         while unit.read_entry(&mut entry)? {
         ///             if need_entry(&entry)? {
         ///                 unit.require_entry(entry.offset);
         ///             }
@@ -2535,6 +2560,11 @@ pub(crate) mod convert {
             self.line_program_files = line_program_files;
         }
 
+        /// Return a null DIE for use with [`ConvertUnit::read_entry`].
+        pub fn null_entry(&self) -> ConvertUnitEntry<'a, R> {
+            ConvertUnitEntry::null(self.read_unit)
+        }
+
         /// Read the next DIE from the input.
         ///
         /// Returns the `UnitEntryId` that was reserved for the entry, if any. If you wish
@@ -2544,10 +2574,10 @@ pub(crate) mod convert {
         /// attributes.
         ///
         /// Returns `Ok(None)` if there are no more entries.
-        // TODO: allow reuse of `ConvertUnitEntry` to avoid allocations?
         pub fn read_entry(
             &mut self,
-        ) -> ConvertResult<Option<(Option<UnitEntryId>, ConvertUnitEntry<'a, R>)>> {
+            entry: &mut ConvertUnitEntry<'a, R>,
+        ) -> ConvertResult<Option<Option<UnitEntryId>>> {
             loop {
                 if self.read_entries.is_empty() {
                     return Ok(None);
@@ -2580,17 +2610,15 @@ pub(crate) mod convert {
                     self.parents.push((depth, id));
                 }
 
-                let mut entry = ConvertUnitEntry {
-                    read_unit: self.read_unit,
-                    offset,
-                    depth,
-                    tag: abbrev.tag(),
-                    attrs: Vec::new(),
-                    sibling: false,
-                    parent,
-                };
+                entry.read_unit = self.read_unit;
+                entry.offset = offset;
+                entry.depth = depth;
+                entry.tag = abbrev.tag();
+                entry.attrs.clear();
+                entry.sibling = false;
+                entry.parent = parent;
                 entry.read_attributes(&mut self.read_entries, abbrev.attributes())?;
-                return Ok(Some((id, entry)));
+                return Ok(Some(id));
             }
         }
 
@@ -2669,15 +2697,16 @@ pub(crate) mod convert {
         /// See [`Dwarf::from`](crate::write::Dwarf::from) for the meaning of `convert_address`.
         pub fn convert(
             &mut self,
-            root_entry: &ConvertUnitEntry<'_, R>,
+            root_entry: ConvertUnitEntry<'a, R>,
             convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<()> {
             if let Some(convert_program) = self.read_line_program(None, None)? {
                 let (program, files) = convert_program.convert(convert_address)?;
                 self.set_line_program(program, files);
             }
-            self.convert_attributes(self.unit.root(), root_entry, convert_address)?;
-            while let Some((id, entry)) = self.read_entry()? {
+            self.convert_attributes(self.unit.root(), &root_entry, convert_address)?;
+            let mut entry = root_entry;
+            while let Some(id) = self.read_entry(&mut entry)? {
                 if id.is_none() {
                     continue;
                 }
@@ -2997,6 +3026,21 @@ pub(crate) mod convert {
     }
 
     impl<'a, R: Reader<Offset = usize>> ConvertUnitEntry<'a, R> {
+        /// Return a null entry.
+        ///
+        /// This can be used with [`ConvertUnit::read_entry`],
+        pub fn null(read_unit: read::UnitRef<'a, R>) -> Self {
+            ConvertUnitEntry {
+                read_unit,
+                offset: read::UnitOffset(0),
+                depth: 0,
+                tag: constants::DW_TAG_null,
+                attrs: Vec::new(),
+                sibling: false,
+                parent: None,
+            }
+        }
+
         /// Read the DIE at the given offset.
         ///
         /// This does not affect the state of the reader.
