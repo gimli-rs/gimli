@@ -1013,6 +1013,14 @@ impl<R: Reader> fallible_iterator::FallibleIterator for OperationIter<R> {
     }
 }
 
+impl<R: Reader> Iterator for OperationIter<R> {
+    type Item = Result<Operation<R>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        OperationIter::next(self).transpose()
+    }
+}
+
 /// Specification of what storage should be used for [`Evaluation`].
 ///
 #[cfg_attr(

@@ -294,6 +294,26 @@ impl<'a, 'bases, R: Reader> fallible_iterator::FallibleIterator for EhHdrTableIt
     }
 }
 
+impl<'a, 'bases, R: Reader> Iterator for EhHdrTableIter<'a, 'bases, R> {
+    type Item = Result<(Pointer, Pointer)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        EhHdrTableIter::next(self).transpose()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        use core::convert::TryInto;
+        (
+            self.remain.try_into().unwrap_or(0),
+            self.remain.try_into().ok(),
+        )
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        EhHdrTableIter::nth(self, n).transpose()
+    }
+}
+
 /// The CFI binary search table that is an optional part of the `.eh_frame_hdr` section.
 #[derive(Debug, Clone)]
 pub struct EhHdrTable<'a, R: Reader> {
@@ -619,9 +639,6 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
 
     /// Iterate over the `CommonInformationEntry`s and `FrameDescriptionEntry`s
     /// in this `.debug_frame` section.
-    ///
-    /// Can be [used with
-    /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     fn entries<'bases>(&self, bases: &'bases BaseAddresses) -> CfiEntriesIter<'bases, Self, R> {
         CfiEntriesIter {
             section: self.clone(),
@@ -943,9 +960,6 @@ impl BaseAddresses {
 /// default, none are provided. If a relative pointer is encountered for a base
 /// address that is unknown, an `Err` will be returned and iteration will abort.
 ///
-/// Can be [used with
-/// `FallibleIterator`](./index.html#using-with-fallibleiterator).
-///
 /// ```
 /// use gimli::{BaseAddresses, EhFrame, EndianSlice, NativeEndian, UnwindSection};
 ///
@@ -1031,6 +1045,18 @@ where
 
     fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         CfiEntriesIter::next(self)
+    }
+}
+
+impl<'bases, Section, R> Iterator for CfiEntriesIter<'bases, Section, R>
+where
+    R: Reader,
+    Section: UnwindSection<R>,
+{
+    type Item = Result<CieOrFde<'bases, Section, R>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        CfiEntriesIter::next(self).transpose()
     }
 }
 
@@ -1392,9 +1418,6 @@ impl<R: Reader> CommonInformationEntry<R> {
     }
 
     /// Iterate over this CIE's initial instructions.
-    ///
-    /// Can be [used with
-    /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn instructions<'a, Section>(
         &self,
         section: &'a Section,
@@ -1749,9 +1772,6 @@ impl<R: Reader> FrameDescriptionEntry<R> {
     ///
     /// Will not include the CIE's initial instructions, if you want those do
     /// `fde.cie().instructions()` first.
-    ///
-    /// Can be [used with
-    /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn instructions<'a, Section>(
         &self,
         section: &'a Section,
@@ -2250,7 +2270,7 @@ where
     /// Evaluate call frame instructions until the next row of the table is
     /// completed, and return it.
     ///
-    /// Unfortunately, this cannot be used with `FallibleIterator` because of
+    /// Unfortunately, this cannot be used with `Iterator` because of
     /// the restricted lifetime of the yielded item.
     pub fn next_row(&mut self) -> Result<Option<&UnwindTableRow<R::Offset, S>>> {
         assert!(!self.ctx.stack.is_empty());
@@ -3444,9 +3464,6 @@ impl<T: ReaderOffset> CallFrameInstruction<T> {
 }
 
 /// A lazy iterator parsing call frame instructions.
-///
-/// Can be [used with
-/// `FallibleIterator`](./index.html#using-with-fallibleiterator).
 #[derive(Clone, Debug)]
 pub struct CallFrameInstructionIter<'a, R: Reader> {
     input: R,
@@ -3484,6 +3501,14 @@ impl<'a, R: Reader> fallible_iterator::FallibleIterator for CallFrameInstruction
 
     fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         CallFrameInstructionIter::next(self)
+    }
+}
+
+impl<'a, R: Reader> Iterator for CallFrameInstructionIter<'a, R> {
+    type Item = Result<CallFrameInstruction<R::Offset>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        CallFrameInstructionIter::next(self).transpose()
     }
 }
 

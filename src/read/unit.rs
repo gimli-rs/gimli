@@ -211,9 +211,6 @@ impl<R: Reader> DebugInfo<R> {
     ///     println!("unit's length is {}", unit.unit_length());
     /// }
     /// ```
-    ///
-    /// Can be [used with
-    /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn units(&self) -> DebugInfoUnitHeadersIter<R> {
         DebugInfoUnitHeadersIter {
             input: self.debug_info_section.clone(),
@@ -299,6 +296,14 @@ impl<R: Reader> fallible_iterator::FallibleIterator for DebugInfoUnitHeadersIter
 
     fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         DebugInfoUnitHeadersIter::next(self)
+    }
+}
+
+impl<R: Reader> Iterator for DebugInfoUnitHeadersIter<R> {
+    type Item = Result<UnitHeader<R>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        DebugInfoUnitHeadersIter::next(self).transpose()
     }
 }
 
@@ -3107,9 +3112,6 @@ impl<R: Reader> DebugTypes<R> {
     ///     println!("unit's length is {}", unit.unit_length());
     /// }
     /// ```
-    ///
-    /// Can be [used with
-    /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn units(&self) -> DebugTypesUnitHeadersIter<R> {
         DebugTypesUnitHeadersIter {
             input: self.debug_types_section.clone(),
@@ -3157,6 +3159,14 @@ impl<R: Reader> fallible_iterator::FallibleIterator for DebugTypesUnitHeadersIte
 
     fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         DebugTypesUnitHeadersIter::next(self)
+    }
+}
+
+impl<R: Reader> Iterator for DebugTypesUnitHeadersIter<R> {
+    type Item = Result<UnitHeader<R>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        DebugTypesUnitHeadersIter::next(self).transpose()
     }
 }
 

@@ -111,9 +111,6 @@ impl<R: Reader> From<R> for DebugPubTypes<R> {
 }
 
 /// An iterator over the pubtypes from a `.debug_pubtypes` section.
-///
-/// Can be [used with
-/// `FallibleIterator`](./index.html#using-with-fallibleiterator).
 #[derive(Debug, Clone)]
 pub struct PubTypesEntryIter<R: Reader>(LookupEntryIter<R, PubStuffParser<R, PubTypesEntry<R>>>);
 
@@ -137,5 +134,13 @@ impl<R: Reader> fallible_iterator::FallibleIterator for PubTypesEntryIter<R> {
 
     fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         self.0.next()
+    }
+}
+
+impl<R: Reader> Iterator for PubTypesEntryIter<R> {
+    type Item = Result<PubTypesEntry<R>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().transpose()
     }
 }

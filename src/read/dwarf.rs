@@ -348,9 +348,6 @@ impl<R: Reader> Dwarf<R> {
     }
 
     /// Iterate the unit headers in the `.debug_info` section.
-    ///
-    /// Can be [used with
-    /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     #[inline]
     pub fn units(&self) -> DebugInfoUnitHeadersIter<R> {
         self.debug_info.units()
@@ -363,9 +360,6 @@ impl<R: Reader> Dwarf<R> {
     }
 
     /// Iterate the type-unit headers in the `.debug_types` section.
-    ///
-    /// Can be [used with
-    /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     #[inline]
     pub fn type_units(&self) -> DebugTypesUnitHeadersIter<R> {
         self.debug_types.units()
@@ -1631,6 +1625,15 @@ impl<R: Reader> fallible_iterator::FallibleIterator for RangeIter<R> {
     #[inline]
     fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         RangeIter::next(self)
+    }
+}
+
+impl<R: Reader> Iterator for RangeIter<R> {
+    type Item = Result<Range>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        RangeIter::next(self).transpose()
     }
 }
 
