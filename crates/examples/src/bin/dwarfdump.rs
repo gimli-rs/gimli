@@ -3,7 +3,6 @@
 // style: allow verbose lifetimes
 #![allow(clippy::needless_lifetimes)]
 
-use fallible_iterator::FallibleIterator;
 use gimli::{Section, UnitHeader, UnitOffset, UnitType, UnwindSection};
 use object::{Object, ObjectSection};
 use regex::bytes::Regex;
@@ -484,8 +483,11 @@ where
         Some(
             match dwo_parent
                 .units()
-                .map(|unit_header| dwo_parent.unit(unit_header))
-                .filter_map(|unit| Ok(unit.dwo_id.map(|dwo_id| (dwo_id, unit))))
+                .map(|unit_header| {
+                    let unit = dwo_parent.unit(unit_header?)?;
+                    Ok(unit.dwo_id.map(|dwo_id| (dwo_id, unit)))
+                })
+                .filter_map(Result::transpose)
                 .collect()
             {
                 Ok(units) => units,
@@ -1025,7 +1027,7 @@ where
 {
     writeln!(w, "\n.debug_info")?;
 
-    let units = match dwarf.units().collect::<Vec<_>>() {
+    let units = match dwarf.units().collect::<gimli::Result<Vec<_>>>() {
         Ok(units) => units,
         Err(err) => {
             writeln_error(w, dwarf, Error::Gimli(err), "Failed to read unit headers")?;

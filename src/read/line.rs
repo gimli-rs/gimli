@@ -221,7 +221,7 @@ where
     /// an instruction, then `Err(e)` is returned.
     ///
     /// Unfortunately, the references mean that this cannot be a
-    /// `FallibleIterator`.
+    /// `Iterator`.
     pub fn next_row(&mut self) -> Result<Option<(&LineProgramHeader<R, Offset>, &LineRow)>> {
         // Perform any reset that was required after copying the previous row.
         self.row.reset(self.program.header());
@@ -533,7 +533,7 @@ impl<R: Reader> LineInstructions<R> {
     /// `Ok(None)`.
     ///
     /// Unfortunately, the `header` parameter means that this cannot be a
-    /// `FallibleIterator`.
+    /// `Iterator`.
     #[inline(always)]
     pub fn next_instruction(
         &mut self,

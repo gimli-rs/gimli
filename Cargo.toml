@@ -37,7 +37,7 @@ test-assembler = "0.1.3"
 [features]
 read-core = []
 read = ["read-core"]
-read-all = ["read", "std", "fallible-iterator", "endian-reader"]
+read-all = ["read", "std", "endian-reader"]
 endian-reader = ["read", "dep:stable_deref_trait"]
 fallible-iterator = ["dep:fallible-iterator"]
 write = ["dep:fnv", "dep:indexmap"]

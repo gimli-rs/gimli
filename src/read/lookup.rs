@@ -90,8 +90,6 @@ where
     /// parsed and yielded. If an error occurs while parsing the next entry,
     /// then this error is returned as `Err(e)`, and all subsequent calls return
     /// `Ok(None)`.
-    ///
-    /// Can be [used with `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn next(&mut self) -> Result<Option<Parser::Entry>> {
         loop {
             if let Some((ref mut input, ref header)) = self.current_set

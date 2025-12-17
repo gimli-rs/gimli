@@ -447,6 +447,14 @@ impl<R: Reader> fallible_iterator::FallibleIterator for MacroIter<R> {
     }
 }
 
+impl<R: Reader> Iterator for MacroIter<R> {
+    type Item = Result<MacroEntry<R>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        MacroIter::next(self).transpose()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

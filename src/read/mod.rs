@@ -2,7 +2,6 @@
 //!
 //! * [Example Usage](#example-usage)
 //! * [API Structure](#api-structure)
-//! * [Using with `FallibleIterator`](#using-with-fallibleiterator)
 //!
 //! ## Example Usage
 //!
@@ -129,51 +128,6 @@
 //!   used to index into the [`DebugLine`](./struct.DebugLine.html) type because
 //!   `DebugLine` represents the `.debug_line` section. There are similar types
 //!   for offsets relative to a compilation unit rather than a section.
-//!
-//! ## Using with `FallibleIterator`
-//!
-//! The standard library's `Iterator` trait and related APIs do not play well
-//! with iterators where the `next` operation is fallible. One can make the
-//! `Iterator`'s associated `Item` type be a `Result<T, E>`, however the
-//! provided methods cannot gracefully handle the case when an `Err` is
-//! returned.
-//!
-//! This situation led to the
-//! [`fallible-iterator`](https://crates.io/crates/fallible-iterator) crate's
-//! existence. You can read more of the rationale for its existence in its
-//! docs. The crate provides the helpers you have come to expect (eg `map`,
-//! `filter`, etc) for iterators that can fail.
-//!
-//! `gimli`'s many lazy parsing iterators are a perfect match for the
-//! `fallible-iterator` crate's `FallibleIterator` trait because parsing is not
-//! done eagerly. Parse errors later in the input might only be discovered after
-//! having iterated through many items.
-//!
-//! To use `gimli` iterators with `FallibleIterator`, import the crate and trait
-//! into your code:
-//!
-//! ```
-//! # #[cfg(feature = "fallible-iterator")]
-//! # fn foo() {
-//! // Use the `FallibleIterator` trait so its methods are in scope!
-//! use fallible_iterator::FallibleIterator;
-//! use gimli::{DebugAranges, EndianSlice, LittleEndian};
-//!
-//! fn find_sum_of_address_range_lengths(aranges: DebugAranges<EndianSlice<LittleEndian>>)
-//!     -> gimli::Result<u64>
-//! {
-//!     // `DebugAranges::headers` returns a `FallibleIterator`!
-//!     aranges.headers()
-//!         // `flat_map` is provided by `FallibleIterator`!
-//!         .flat_map(|header| Ok(header.entries()))
-//!         // `map` is provided by `FallibleIterator`!
-//!         .map(|arange| Ok(arange.length()))
-//!         // `fold` is provided by `FallibleIterator`!
-//!         .fold(0, |sum, len| Ok(sum + len))
-//! }
-//! # }
-//! # fn main() {}
-//! ```
 
 use core::fmt::{self, Debug};
 use core::result;

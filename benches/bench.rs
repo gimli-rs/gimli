@@ -779,7 +779,6 @@ fn bench_evaluating_debug_loc_expressions(b: &mut Bencher) {
 
 mod cfi {
     use super::*;
-    use fallible_iterator::FallibleIterator;
 
     use gimli::{
         BaseAddresses, CieOrFde, EhFrame, FrameDescriptionEntry, LittleEndian, UnwindContext,
@@ -944,7 +943,7 @@ mod cfi {
         fde: &FrameDescriptionEntry<R>,
     ) -> usize {
         fde.instructions(eh_frame, bases)
-            .fold(0, |count, _| Ok(count + 1))
+            .try_fold(0, |count, i| i.map(|_| count + 1))
             .expect("fold over instructions OK")
     }
 
