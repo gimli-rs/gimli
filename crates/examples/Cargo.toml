@@ -6,7 +6,6 @@ edition = "2018"
 [dependencies]
 gimli = { path = "../..", default-features = false }
 crossbeam = "0.8"
-fallible-iterator = { version = "0.3.0", default-features = false, optional = true }
 getopts = "0.2"
 memmap2 = "0.9.4"
 num_cpus = "1"
@@ -17,8 +16,7 @@ typed-arena = "2"
 
 [features]
 read = ["gimli/read"]
-read-all = ["read", "std", "fallible-iterator"]
-fallible-iterator = ["dep:fallible-iterator", "gimli/fallible-iterator"]
+read-all = ["read", "std"]
 write = ["gimli/write"]
 std = ["gimli/std"]
 default = ["read-all", "write"]
@@ -45,7 +43,7 @@ required-features = ["read", "write", "std"]
 
 [[bin]]
 name = "dwarfdump"
-required-features = ["read", "std", "fallible-iterator"]
+required-features = ["read", "std"]
 
 [[bin]]
 name = "dwarf-validate"
