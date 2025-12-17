@@ -343,13 +343,14 @@ impl<R: Reader> DebugNames<R> {
         S: Reader<Offset = R::Offset>,
     {
         use fallible_iterator::FallibleIterator;
-        let mut results = Vec::new();
 
         // Compute the hash for the name
         let hash = compute_djb_hash(name);
 
         // Iterate through all debug_names units
         let mut units = self.units();
+        let mut results: Vec<NameLookupResult<R>> = Vec::new();
+
         while let Some((header, content)) = units.next()? {
             let unit = DebugNamesUnit::new(header, content)?;
             let cu_offsets: Vec<_> = unit.comp_unit_offsets().collect()?;
@@ -357,51 +358,50 @@ impl<R: Reader> DebugNames<R> {
             let name_indices = hash_table.lookup_by_hash(hash)?;
             let abbrev_table = unit.abbreviation_table()?;
 
-            for name_index in name_indices {
-                // Resolve the actual string to verify it matches
-                if let Some(resolved_name) = hash_table.resolve_name_at_index(debug_str, name_index)
-                {
-                    if resolved_name == name {
-                        // Get the entry offset for this name index
-                        let mut entry_iter = hash_table.entry_offsets();
-                        entry_iter.skip_to(name_index)?;
-                        if let Some(entry_offset) = entry_iter.next()? {
-                            // Parse the entry using the lower-level API to get NameEntry
-                            if let Ok(entry) =
-                                unit.parse_entry_pool_entry(entry_offset, &abbrev_table)
-                            {
-                                // Apply tag filter if specified
-                                if let Some(required_tag) = tag_filter {
-                                    if entry.tag() != required_tag {
-                                        continue;
-                                    }
-                                }
+            // Process each name index in this unit using iterator combinators
+            let unit_results: Vec<_> = name_indices
+                .into_iter()
+                .filter_map(|name_index| {
+                    // Resolve the actual string to verify it matches
+                    let resolved_name = hash_table.resolve_name_at_index(debug_str, name_index)?;
+                    if resolved_name != name {
+                        return None;
+                    }
 
-                                // Determine the compilation unit offset using the CU index from the entry
-                                let cu_offset = match entry.compile_unit {
-                                    Some(cu_index) => {
-                                        match cu_offsets.get(cu_index as usize).copied() {
-                                            Some(offset) => offset,
-                                            None => continue, // Skip entry if CU index is out of bounds
-                                        }
-                                    }
-                                    None => continue, // Skip entry if no CU index specified
-                                };
+                    // Get the entry offset for this name index
+                    let mut entry_iter = hash_table.entry_offsets();
+                    entry_iter.skip_to(name_index).ok()?;
+                    let entry_offset = entry_iter.next().ok()??;
 
-                                let die_unit_offset = entry.die_offset();
-                                let result = NameLookupResult::new(
-                                    entry,
-                                    resolved_name,
-                                    cu_offset,
-                                    die_unit_offset,
-                                );
+                    // Parse the entry using the lower-level API to get NameEntry
+                    let entry = unit
+                        .parse_entry_pool_entry(entry_offset, &abbrev_table)
+                        .ok()?;
 
-                                results.push(result);
-                            }
+                    // Apply tag filter if specified
+                    if let Some(required_tag) = tag_filter {
+                        if entry.tag() != required_tag {
+                            return None;
                         }
                     }
-                }
-            }
+
+                    // Determine the compilation unit offset using the CU index from the entry
+                    let cu_offset = match entry.compile_unit {
+                        Some(cu_index) => cu_offsets.get(cu_index as usize).copied()?,
+                        None => return None, // Skip entry if no CU index specified
+                    };
+
+                    let die_unit_offset = entry.die_offset();
+                    Some(NameLookupResult::new(
+                        entry,
+                        resolved_name,
+                        cu_offset,
+                        die_unit_offset,
+                    ))
+                })
+                .collect();
+
+            results.extend(unit_results);
         }
 
         Ok(results)
@@ -687,15 +687,14 @@ impl<R: Reader> DebugNamesUnit<R> {
 
     /// Get the local type unit offsets table.
     pub fn local_type_unit_offsets(&self) -> Result<Vec<DebugInfoOffset<R::Offset>>> {
+        use fallible_iterator::FallibleIterator;
         let mut reader = self.local_type_unit_list.clone();
-        let mut offsets = Vec::with_capacity(self.local_type_unit_count as usize);
-
-        for _ in 0..self.local_type_unit_count {
-            let offset = reader.read_offset(self.format)?;
-            offsets.push(DebugInfoOffset(offset));
-        }
-
-        Ok(offsets)
+        fallible_iterator::convert((0..self.local_type_unit_count).map(Ok))
+            .map(|_| {
+                let offset = reader.read_offset(self.format)?;
+                Ok::<_, Error>(DebugInfoOffset(offset))
+            })
+            .collect()
     }
 
     /// Get the foreign type unit signatures table.
@@ -1223,7 +1222,7 @@ pub struct HashBucketsIter<R: Reader> {
 }
 
 impl<R: Reader> HashBucketsIter<R> {
-    /// Skip to a specific index in the iterator.
+    /// Skip to a specific index in the iterator by reading and discarding data.
     pub fn skip_to(&mut self, index: usize) -> Result<()> {
         for _ in 0..index.min(self.remaining as usize) {
             self.reader.read_u32()?;
@@ -1260,7 +1259,7 @@ pub struct HashArrayIter<R: Reader> {
 }
 
 impl<R: Reader> HashArrayIter<R> {
-    /// Skip to a specific index in the iterator.
+    /// Skip to a specific index in the iterator by reading and discarding data.
     pub fn skip_to(&mut self, index: usize) -> Result<()> {
         for _ in 0..index.min(self.remaining as usize) {
             self.reader.read_u32()?;
@@ -1298,7 +1297,7 @@ pub struct StringOffsetsIter<R: Reader> {
 }
 
 impl<R: Reader> StringOffsetsIter<R> {
-    /// Skip to a specific index in the iterator.
+    /// Skip to a specific index in the iterator by reading and discarding data.
     pub fn skip_to(&mut self, index: usize) -> Result<()> {
         for _ in 0..index.min(self.remaining as usize) {
             self.reader.read_offset(self.format)?;
@@ -1336,7 +1335,7 @@ pub struct EntryOffsetsIter<R: Reader> {
 }
 
 impl<R: Reader> EntryOffsetsIter<R> {
-    /// Skip to a specific index in the iterator.
+    /// Skip to a specific index in the iterator by reading and discarding data.
     pub fn skip_to(&mut self, index: usize) -> Result<()> {
         for _ in 0..index.min(self.remaining as usize) {
             self.reader.read_offset(self.format)?;
@@ -1490,13 +1489,15 @@ mod tests {
     use crate::endianity::LittleEndian;
     use crate::test_util::GimliSectionMethods;
     use alloc::vec::Vec;
-    use test_assembler::Section;
+    use test_assembler::{Label, LabelMaker, Section};
 
     /// Debug names section builder methods for testing
     pub trait DebugNamesSectionMethods {
         fn debug_names_header(
             self,
             format: Format,
+            length: &Label,
+            start: &Label,
             version: u16,
             cu_count: u32,
             local_tu_count: u32,
@@ -1506,6 +1507,7 @@ mod tests {
             abbrev_table_size: u32,
             augmentation: &str,
         ) -> Self;
+        fn debug_names_end(self, end: &Label) -> Self;
         fn debug_names_cu_offset(self, offset: u32) -> Self;
         fn debug_names_hash_bucket(self, value: u32) -> Self;
         fn debug_names_hash(self, hash: u32) -> Self;
@@ -1525,6 +1527,8 @@ mod tests {
         fn debug_names_header(
             self,
             format: Format,
+            length: &Label,
+            start: &Label,
             version: u16,
             cu_count: u32,
             local_tu_count: u32,
@@ -1534,44 +1538,28 @@ mod tests {
             abbrev_table_size: u32,
             augmentation: &str,
         ) -> Self {
-            // For now, calculate length manually based on expected content
-            // TODO Is this hardcoded or can it be derived another way?
-            // Header: 32 bytes + augmentation length
-            // Data: CU offsets + Local TU offsets + Foreign TU offsets + Hash buckets + Hash array + String offsets + Entry offsets + Abbrev table + Entry pool
-            let cu_offsets_size = cu_count * 4;
-            let local_tu_offsets_size = local_tu_count * 4;
-            let foreign_tu_offsets_size = foreign_tu_count * 4;
-            let hash_buckets_size = bucket_count * 4;
-            let hash_array_size = name_count * 4;
-            let string_offsets_size = name_count * 4;
-            let entry_offsets_size = name_count * 4;
+            // Write placeholder length and mark start position.
+            // Caller should call debug_names_end() after all content and then
+            // set length using: length.set_const((&end - &start) as u64);
+            let section = match format {
+                Format::Dwarf32 => self.D32(length).mark(start),
+                Format::Dwarf64 => self.D32(0xffffffff).D64(length).mark(start),
+            };
+            section
+                .D16(version)
+                .D16(0) // Padding
+                .D32(cu_count)
+                .D32(local_tu_count)
+                .D32(foreign_tu_count)
+                .D32(bucket_count)
+                .D32(name_count)
+                .D32(abbrev_table_size)
+                .D32(augmentation.len() as u32)
+                .append_bytes(augmentation.as_bytes())
+        }
 
-            let content_length = 32
-                + augmentation.len() as u32
-                + cu_offsets_size
-                + local_tu_offsets_size
-                + foreign_tu_offsets_size
-                + hash_buckets_size
-                + hash_array_size
-                + string_offsets_size
-                + entry_offsets_size
-                + abbrev_table_size
-                + 8; // Add some space for entry pool
-
-            match format {
-                Format::Dwarf32 => self.D32(content_length),
-                Format::Dwarf64 => self.D32(0xffffffff).D64(content_length as u64),
-            }
-            .D16(version)
-            .D16(0) // Padding
-            .D32(cu_count)
-            .D32(local_tu_count)
-            .D32(foreign_tu_count)
-            .D32(bucket_count)
-            .D32(name_count)
-            .D32(abbrev_table_size)
-            .D32(augmentation.len() as u32)
-            .append_bytes(augmentation.as_bytes())
+        fn debug_names_end(self, end: &Label) -> Self {
+            self.mark(end)
         }
 
         fn debug_names_cu_offset(self, offset: u32) -> Self {
@@ -2278,9 +2266,15 @@ mod tests {
     #[test]
     fn test_debug_names_with_entries() {
         // Test a complete debug_names section with entries
-        let buf = Section::new()
+        let length = Label::new();
+        let start = Label::new();
+        let end = Label::new();
+
+        let section = Section::new()
             .debug_names_header(
                 Format::Dwarf32,
+                &length,
+                &start,
                 5, // version
                 1, // cu_count
                 0, // local_tu_count
@@ -2314,8 +2308,10 @@ mod tests {
             // Entry pool
             .debug_names_entry(1, &[0x34, 0x12, 0x00, 0x00]) // First entry
             .debug_names_entry(1, &[0x78, 0x56, 0x00, 0x00]) // Second entry
-            .get_contents()
-            .unwrap();
+            .debug_names_end(&end);
+
+        length.set_const((&end - &start) as u64);
+        let buf = section.get_contents().unwrap();
 
         let debug_names = DebugNames::new(&buf, LittleEndian);
         let mut units = debug_names.units();
@@ -2370,10 +2366,16 @@ mod tests {
     #[test]
     fn test_debug_names_empty_iterator() {
         // Test iterator with zero entries
-        let buf = Section::new()
-            .debug_names_header(Format::Dwarf32, 5, 0, 0, 0, 0, 0, 0, "")
-            .get_contents()
-            .unwrap();
+        let length = Label::new();
+        let start = Label::new();
+        let end = Label::new();
+
+        let section = Section::new()
+            .debug_names_header(Format::Dwarf32, &length, &start, 5, 0, 0, 0, 0, 0, 0, "")
+            .debug_names_end(&end);
+
+        length.set_const((&end - &start) as u64);
+        let buf = section.get_contents().unwrap();
 
         let debug_names = DebugNames::new(&buf, LittleEndian);
         let mut units = debug_names.units();

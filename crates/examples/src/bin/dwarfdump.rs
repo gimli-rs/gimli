@@ -2701,13 +2701,12 @@ fn dump_names_by_bucket<R: Reader, W: Write>(
     // "All symbols that have the same index into the bucket list follow one another in the
     // hashes array, and the indexed entry in the bucket list refers to the first symbol."
 
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::HashMap;
 
     // Collect names by bucket following DWARF 5 Section 6.1.1.4.5:
     // "All symbols that have the same index into the bucket list follow one another in the
     // hashes array, and the indexed entry in the bucket list refers to the first symbol."
-    let mut bucket_names: BTreeMap<usize, Vec<(usize, u32, R::Offset, R::Offset)>> =
-        BTreeMap::new();
+    let mut bucket_names: HashMap<usize, Vec<(usize, u32, R::Offset, R::Offset)>> = HashMap::new();
 
     for (bucket_idx, &bucket_start) in hash_buckets.iter().enumerate() {
         if bucket_start > 0 {
@@ -2742,55 +2741,56 @@ fn dump_names_by_bucket<R: Reader, W: Write>(
     // Group entries by resolved string content to handle multiple entries per name
     // Following DWARF 5 spec: "If two different symbol names produce the same hash value,
     // that hash value will occur twice in the hashes array"
-    let mut bucket_display: BTreeMap<usize, Vec<(usize, u32, R::Offset, String, Vec<R::Offset>)>> =
-        BTreeMap::new();
+    let bucket_display: HashMap<_, _> = bucket_names
+        .into_iter()
+        .map(|(bucket_idx, names)| {
+            let mut string_groups: HashMap<String, (usize, u32, R::Offset, Vec<R::Offset>)> =
+                HashMap::new();
 
-    for (bucket_idx, names) in bucket_names {
-        let mut string_groups: HashMap<String, (usize, u32, R::Offset, Vec<R::Offset>)> =
-            HashMap::new();
+            for (name_idx, hash, string_offset, entry_offset) in names {
+                let string_content = resolve_string_name(dwarf, string_offset);
 
-        for (name_idx, hash, string_offset, entry_offset) in names {
-            let string_content = resolve_string_name(dwarf, string_offset);
+                // Parse all entries in the series for this entry offset
+                let series_entry_offsets =
+                    match parse_entry_series(unit, entry_offset, &abbrev_table) {
+                        Ok(offsets) => offsets,
+                        Err(_) => {
+                            // Fallback to single entry if series parsing fails
+                            vec![entry_offset]
+                        }
+                    };
 
-            // Parse all entries in the series for this entry offset
-            let series_entry_offsets = match parse_entry_series(unit, entry_offset, &abbrev_table) {
-                Ok(offsets) => offsets,
-                Err(_) => {
-                    // Fallback to single entry if series parsing fails
-                    vec![entry_offset]
-                }
-            };
-
-            match string_groups.get_mut(&string_content) {
-                Some((_, _, _, entry_offsets)) => {
-                    // Add all entries in the series to existing string group
-                    entry_offsets.extend(series_entry_offsets);
-                }
-                None => {
-                    // Create new string group with all entries in the series
-                    string_groups.insert(
-                        string_content.clone(),
-                        (name_idx, hash, string_offset, series_entry_offsets),
-                    );
+                match string_groups.get_mut(&string_content) {
+                    Some((_, _, _, entry_offsets)) => {
+                        // Add all entries in the series to existing string group
+                        entry_offsets.extend(series_entry_offsets);
+                    }
+                    None => {
+                        // Create new string group with all entries in the series
+                        string_groups.insert(
+                            string_content.clone(),
+                            (name_idx, hash, string_offset, series_entry_offsets),
+                        );
+                    }
                 }
             }
-        }
 
-        // Convert to display format, maintaining original array index order
-        let mut bucket_entries: Vec<(usize, u32, R::Offset, String, Vec<R::Offset>)> =
-            string_groups
-                .into_iter()
-                .map(
-                    |(string_content, (name_idx, hash, string_offset, entry_offsets))| {
-                        (name_idx, hash, string_offset, string_content, entry_offsets)
-                    },
-                )
-                .collect();
+            // Convert to display format, maintaining original array index order
+            let mut bucket_entries: Vec<(usize, u32, R::Offset, String, Vec<R::Offset>)> =
+                string_groups
+                    .into_iter()
+                    .map(
+                        |(string_content, (name_idx, hash, string_offset, entry_offsets))| {
+                            (name_idx, hash, string_offset, string_content, entry_offsets)
+                        },
+                    )
+                    .collect();
 
-        // Sort by original array index to match system dwarfdump ordering
-        bucket_entries.sort_by_key(|(name_idx, _, _, _, _)| *name_idx);
-        bucket_display.insert(bucket_idx, bucket_entries);
-    }
+            // Sort by original array index to match system dwarfdump ordering
+            bucket_entries.sort_by_key(|(name_idx, _, _, _, _)| *name_idx);
+            (bucket_idx, bucket_entries)
+        })
+        .collect();
 
     // Display buckets with global name numbering
     let mut global_name_counter = 1;
