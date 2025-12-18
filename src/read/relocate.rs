@@ -40,6 +40,11 @@ where
             relocate,
         }
     }
+
+    /// Get a reference to the underlying section reader.
+    pub fn inner(&self) -> &R {
+        &self.reader
+    }
 }
 
 impl<R, T> fmt::Debug for RelocateReader<R, T>

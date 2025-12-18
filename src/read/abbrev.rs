@@ -532,32 +532,19 @@ impl AttributeSpecification {
         get_attribute_size(self.form, header.encoding()).map(usize::from)
     }
 
-    /// Parse an attribute's form.
-    fn parse_form<R: Reader>(input: &mut R) -> Result<constants::DwForm> {
-        let val = input.read_uleb128_u16()?;
-        if val == 0 {
-            Err(Error::AttributeFormZero)
-        } else {
-            Ok(constants::DwForm(val))
-        }
-    }
-
     /// Parse an attribute specification. Returns `None` for the null attribute
     /// specification, `Some` for an actual attribute specification.
     fn parse<R: Reader>(input: &mut R) -> Result<Option<AttributeSpecification>> {
         let name = input.read_uleb128_u16()?;
-        if name == 0 {
-            // Parse the null attribute specification.
-            let form = input.read_uleb128_u16()?;
-            return if form == 0 {
-                Ok(None)
-            } else {
-                Err(Error::ExpectedZero)
-            };
+        let form = input.read_uleb128_u16()?;
+        match (name, form) {
+            (0, 0) => return Ok(None),
+            (0, _) => return Err(Error::AttributeNameZero),
+            (_, 0) => return Err(Error::AttributeFormZero),
+            (_, _) => {}
         }
-
         let name = constants::DwAt(name);
-        let form = Self::parse_form(input)?;
+        let form = constants::DwForm(form);
         let implicit_const_value = if form == constants::DW_FORM_implicit_const {
             Some(input.read_sleb128()?)
         } else {
@@ -1034,25 +1021,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_parse_attribute_form_ok() {
-        let buf = [0x01, 0x02];
-        let rest = &mut EndianSlice::new(&buf, LittleEndian);
-        let tag = AttributeSpecification::parse_form(rest).expect("Should parse form");
-        assert_eq!(tag, constants::DW_FORM_addr);
-        assert_eq!(*rest, EndianSlice::new(&buf[1..], LittleEndian));
-    }
-
-    #[test]
-    fn test_parse_attribute_form_zero() {
-        let buf = [0x00];
-        let buf = &mut EndianSlice::new(&buf, LittleEndian);
-        match AttributeSpecification::parse_form(buf) {
-            Err(Error::AttributeFormZero) => {}
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        };
-    }
-
-    #[test]
     fn test_parse_null_attribute_specification_ok() {
         let buf = [0x00, 0x00, 0x01];
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
@@ -1067,7 +1035,7 @@ pub(crate) mod tests {
         let buf = [0x00, 0x01, 0x00, 0x00];
         let buf = &mut EndianSlice::new(&buf, LittleEndian);
         match AttributeSpecification::parse(buf) {
-            Err(Error::ExpectedZero) => {}
+            Err(Error::AttributeNameZero) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }

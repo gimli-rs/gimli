@@ -48,3 +48,7 @@ required-features = ["read", "std"]
 [[bin]]
 name = "dwarf-validate"
 required-features = ["read", "std"]
+
+[[bin]]
+name = "names"
+required-features = ["read", "std"]
