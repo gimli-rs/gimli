@@ -2,16 +2,16 @@ use alloc::string::String;
 use alloc::sync::Arc;
 
 use crate::common::{
-    DebugAddrBase, DebugAddrIndex, DebugLineStrOffset, DebugLocListsBase, DebugLocListsIndex,
-    DebugMacinfoOffset, DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
-    DebugStrOffsetsIndex, DebugTypeSignature, DwarfFileType, DwoId, Encoding, LocationListsOffset,
-    RangeListsOffset, RawRangeListsOffset, SectionId,
+    DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineStrOffset, DebugLocListsBase,
+    DebugLocListsIndex, DebugMacinfoOffset, DebugRngListsBase, DebugRngListsIndex, DebugStrOffset,
+    DebugStrOffsetsBase, DebugStrOffsetsIndex, DebugTypeSignature, DwarfFileType, DwoId, Encoding,
+    LocationListsOffset, RangeListsOffset, RawRangeListsOffset, SectionId,
 };
 use crate::read::{
     Abbreviations, AbbreviationsCache, AbbreviationsCacheStrategy, AttributeValue, DebugAbbrev,
     DebugAddr, DebugAranges, DebugCuIndex, DebugInfo, DebugInfoUnitHeadersIter, DebugLine,
-    DebugLineStr, DebugLoc, DebugLocLists, DebugMacinfo, DebugMacro, DebugRanges, DebugRngLists,
-    DebugStr, DebugStrOffsets, DebugTuIndex, DebugTypes, DebugTypesUnitHeadersIter,
+    DebugLineStr, DebugLoc, DebugLocLists, DebugMacinfo, DebugMacro, DebugNames, DebugRanges,
+    DebugRngLists, DebugStr, DebugStrOffsets, DebugTuIndex, DebugTypes, DebugTypesUnitHeadersIter,
     DebuggingInformationEntry, EntriesCursor, EntriesRaw, EntriesTree, Error,
     IncompleteLineProgram, IndexSectionId, LocListIter, LocationLists, MacroIter, Range,
     RangeLists, RawLocListIter, RawRngListIter, Reader, ReaderOffset, ReaderOffsetId, Result,
@@ -64,6 +64,8 @@ pub struct DwarfSections<T> {
     pub debug_macinfo: DebugMacinfo<T>,
     /// The `.debug_macro` section.
     pub debug_macro: DebugMacro<T>,
+    /// The `.debug_names` section.
+    pub debug_names: DebugNames<T>,
     /// The `.debug_str` section.
     pub debug_str: DebugStr<T>,
     /// The `.debug_str_offsets` section.
@@ -99,6 +101,7 @@ impl<T> DwarfSections<T> {
             debug_line_str: Section::load(&mut section)?,
             debug_macinfo: Section::load(&mut section)?,
             debug_macro: Section::load(&mut section)?,
+            debug_names: Section::load(&mut section)?,
             debug_str: Section::load(&mut section)?,
             debug_str_offsets: Section::load(&mut section)?,
             debug_types: Section::load(&mut section)?,
@@ -123,6 +126,7 @@ impl<T> DwarfSections<T> {
             debug_line_str: self.debug_line_str.borrow(&mut borrow),
             debug_macinfo: self.debug_macinfo.borrow(&mut borrow),
             debug_macro: self.debug_macro.borrow(&mut borrow),
+            debug_names: self.debug_names.borrow(&mut borrow),
             debug_str: self.debug_str.borrow(&mut borrow),
             debug_str_offsets: self.debug_str_offsets.borrow(&mut borrow),
             debug_types: self.debug_types.borrow(&mut borrow),
@@ -193,6 +197,9 @@ pub struct Dwarf<R> {
     /// The `.debug_macro` section.
     pub debug_macro: DebugMacro<R>,
 
+    /// The `.debug_names` section.
+    pub debug_names: DebugNames<R>,
+
     /// The `.debug_str` section.
     pub debug_str: DebugStr<R>,
 
@@ -260,6 +267,7 @@ impl<T> Dwarf<T> {
             debug_line_str: sections.debug_line_str,
             debug_macinfo: sections.debug_macinfo,
             debug_macro: sections.debug_macro,
+            debug_names: sections.debug_names,
             debug_str: sections.debug_str,
             debug_str_offsets: sections.debug_str_offsets,
             debug_types: sections.debug_types,
@@ -312,6 +320,7 @@ impl<T> Dwarf<T> {
             debug_line_str: self.debug_line_str.borrow(&mut borrow),
             debug_macinfo: self.debug_macinfo.borrow(&mut borrow),
             debug_macro: self.debug_macro.borrow(&mut borrow),
+            debug_names: self.debug_names.borrow(&mut borrow),
             debug_str: self.debug_str.borrow(&mut borrow),
             debug_str_offsets: self.debug_str_offsets.borrow(&mut borrow),
             debug_types: self.debug_types.borrow(&mut borrow),
@@ -351,6 +360,12 @@ impl<R: Reader> Dwarf<R> {
     #[inline]
     pub fn units(&self) -> DebugInfoUnitHeadersIter<R> {
         self.debug_info.units()
+    }
+
+    /// Parse the unit header at the given offset in the `.debug_info` section.
+    #[inline]
+    pub fn unit_header(&self, offset: DebugInfoOffset<R::Offset>) -> Result<UnitHeader<R>> {
+        self.debug_info.header_from_offset(offset)
     }
 
     /// Construct a new `Unit` from the given unit header.
@@ -1124,6 +1139,7 @@ impl<R: Reader> DwarfPackage<R> {
         let debug_line_str = self.empty.clone().into();
         let debug_macinfo = self.empty.clone().into();
         let debug_macro = self.empty.clone().into();
+        let debug_names = self.empty.clone().into();
 
         Ok(Dwarf {
             debug_abbrev,
@@ -1134,6 +1150,7 @@ impl<R: Reader> DwarfPackage<R> {
             debug_line_str,
             debug_macinfo,
             debug_macro,
+            debug_names,
             debug_str,
             debug_str_offsets,
             debug_types,

@@ -148,6 +148,10 @@ pub struct DebugMacinfoOffset<T = usize>(pub T);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DebugMacroOffset<T = usize>(pub T);
 
+/// An offset into the `.debug_names` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DebugNamesOffset<T = usize>(pub T);
+
 /// An offset into either the `.debug_ranges` section or the `.debug_rnglists` section,
 /// depending on the version of the unit the offset was contained in.
 ///
@@ -249,6 +253,8 @@ pub enum SectionId {
     DebugMacinfo,
     /// The `.debug_macro` section.
     DebugMacro,
+    /// The `.debug_names` section.
+    DebugNames,
     /// The `.debug_pubnames` section.
     DebugPubNames,
     /// The `.debug_pubtypes` section.
@@ -285,6 +291,7 @@ impl SectionId {
             SectionId::DebugLocLists => ".debug_loclists",
             SectionId::DebugMacinfo => ".debug_macinfo",
             SectionId::DebugMacro => ".debug_macro",
+            SectionId::DebugNames => ".debug_names",
             SectionId::DebugPubNames => ".debug_pubnames",
             SectionId::DebugPubTypes => ".debug_pubtypes",
             SectionId::DebugRanges => ".debug_ranges",

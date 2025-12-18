@@ -3,7 +3,7 @@
 // style: allow verbose lifetimes
 #![allow(clippy::needless_lifetimes)]
 
-use gimli::{Section, UnitHeader, UnitOffset, UnitType, UnwindSection};
+use gimli::{ReaderOffset, Section, UnitHeader, UnitOffset, UnitType, UnwindSection};
 use object::{Object, ObjectSection};
 use regex::bytes::Regex;
 use std::borrow::Cow;
@@ -192,6 +192,7 @@ struct Flags<'a> {
     pubtypes: bool,
     aranges: bool,
     addr: bool,
+    names: bool,
     dwo: bool,
     dwp: bool,
     dwo_parent: Option<object::File<'a>>,
@@ -222,6 +223,7 @@ fn main() {
     opts.optflag("r", "", "print .debug_aranges section");
     opts.optflag("y", "", "print .debug_pubtypes section");
     opts.optflag("", "debug-addr", "print .debug_addr section");
+    opts.optflag("", "debug-names", "print .debug_names section");
     opts.optflag(
         "",
         "dwo",
@@ -308,6 +310,10 @@ fn main() {
         flags.addr = true;
         all = false;
     }
+    if matches.opt_present("debug-names") {
+        flags.names = true;
+        all = false;
+    }
     if matches.opt_present("dwo") {
         flags.dwo = true;
     }
@@ -327,6 +333,7 @@ fn main() {
         flags.pubtypes = true;
         flags.aranges = true;
         flags.addr = true;
+        flags.names = true;
     }
     flags.match_units = if let Some(r) = matches.opt_str("u") {
         match Regex::new(&r) {
@@ -569,6 +576,9 @@ where
     if flags.pubtypes {
         let debug_pubtypes = &gimli::Section::load(load_section).unwrap();
         dump_pubtypes(w, debug_pubtypes, &dwarf.debug_info)?;
+    }
+    if flags.names {
+        dump_names(w, &dwarf)?;
     }
     w.flush()?;
     Ok(())
@@ -2455,5 +2465,169 @@ fn dump_macro<R: Reader, W: Write>(
             )?;
         }
     }
+    Ok(())
+}
+
+fn dump_names<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<()> {
+    writeln!(w, ".debug_names contents:")?;
+
+    let mut headers = dwarf.debug_names.headers();
+    while let Some(header) = headers.next()? {
+        writeln!(w, "Name Index @ 0x{:x} {{", header.offset().0)?;
+
+        writeln!(w, "  Header {{")?;
+        writeln!(w, "    Length: 0x{:X}", header.length())?;
+        writeln!(w, "    Format: {:?}", header.format())?;
+        writeln!(w, "    Version: {}", header.version())?;
+        writeln!(w, "    CU count: {}", header.compile_unit_count())?;
+        writeln!(w, "    Local TU count: {}", header.local_type_unit_count())?;
+        writeln!(
+            w,
+            "    Foreign TU count: {}",
+            header.foreign_type_unit_count()
+        )?;
+        writeln!(w, "    Bucket count: {}", header.bucket_count())?;
+        writeln!(w, "    Name count: {}", header.name_count())?;
+        writeln!(
+            w,
+            "    Abbreviations table size: 0x{:X}",
+            header.abbrev_table_size()
+        )?;
+        if let Some(s) = header.augmentation_string() {
+            writeln!(w, "    Augmentation: '{}'", s.to_string_lossy()?)?;
+        }
+        writeln!(w, "  }}")?;
+
+        let name_index = match header.index() {
+            Ok(name_index) => name_index,
+            Err(e) => {
+                writeln!(w, "  Error parsing name index: {}", e)?;
+                continue;
+            }
+        };
+
+        if name_index.compile_unit_count() > 0 {
+            writeln!(w, "  Compilation Unit offsets [")?;
+            for i in 0..name_index.compile_unit_count() {
+                let offset = name_index.compile_unit(i)?;
+                writeln!(w, "    CU[{}]: 0x{:08x}", i, offset.0)?;
+            }
+            writeln!(w, "  ]")?;
+        }
+
+        if name_index.local_type_unit_count() > 0 {
+            writeln!(w, "  Local Type Unit offsets [")?;
+            for i in 0..name_index.local_type_unit_count() {
+                let offset = name_index.local_type_unit(i)?;
+                writeln!(w, "    LocalTU[{}]: 0x{:08x}", i, offset.0)?;
+            }
+            writeln!(w, "  ]")?;
+        }
+
+        if name_index.foreign_type_unit_count() > 0 {
+            writeln!(w, "  Foreign Type Unit signatures [")?;
+            for i in 0..name_index.foreign_type_unit_count() {
+                let signature = name_index.foreign_type_unit(i)?;
+                writeln!(w, "    ForeignTU[{}]: 0x{:016x}", i, signature.0)?;
+            }
+            writeln!(w, "  ]")?;
+        }
+
+        writeln!(w, "  Abbreviations [")?;
+        let abbrev_table = name_index.abbreviations();
+        for abbrev in abbrev_table.abbreviations() {
+            writeln!(w, "    Abbreviation 0x{:x} {{", abbrev.code())?;
+            writeln!(w, "      Tag: {}", abbrev.tag())?;
+            for attr in abbrev.attributes() {
+                writeln!(w, "      {}: {}", attr.name(), attr.form())?;
+            }
+            writeln!(w, "    }}")?;
+        }
+        writeln!(w, "  ]")?;
+
+        // Bucket-based output with name resolution
+        match dump_names_by_bucket(w, &name_index, dwarf) {
+            Ok(_) => {}
+            Err(e) => writeln!(w, "  Error dumping names by bucket: {:?}", e)?,
+        }
+
+        writeln!(w, "}}")?;
+    }
+
+    Ok(())
+}
+
+fn dump_names_by_bucket<R: Reader, W: Write>(
+    w: &mut W,
+    name_index: &gimli::NameIndex<R>,
+    dwarf: &gimli::Dwarf<R>,
+) -> Result<()> {
+    // Display buckets with global name numbering
+    let mut global_name_counter = 1;
+    for bucket_idx in 0..name_index.bucket_count() {
+        writeln!(w, "  Bucket {} [", bucket_idx)?;
+
+        if let Some(mut bucket) = name_index.find_by_bucket(bucket_idx)? {
+            while let Some((name_table_index, hash)) = bucket.next()? {
+                let string_offset = name_index.name_string_offset(name_table_index)?;
+                let string_name = dwarf.debug_str.get_str(string_offset)?;
+
+                writeln!(w, "    Name {} {{", global_name_counter)?;
+                writeln!(w, "      Hash: 0x{:X}", hash)?;
+                writeln!(
+                    w,
+                    "      String: 0x{:08x} \"{}\"",
+                    string_offset.0.into_u64(),
+                    string_name.to_string_lossy()?,
+                )?;
+
+                // Show all entries for this name
+                let mut entries = name_index.name_entries(name_table_index)?;
+                while let Some(entry) = entries.next()? {
+                    writeln!(w, "      Entry @ offset 0x{:x} {{", entry.offset.0)?;
+
+                    writeln!(w, "        Abbrev: 0x{:x}", entry.abbrev_code)?;
+                    writeln!(w, "        Tag: {}", entry.tag)?;
+                    for attr in &entry.attrs {
+                        write!(w, "        {}: ", attr.name())?;
+                        if attr.name() == gimli::DW_IDX_parent {
+                            match attr.value() {
+                                gimli::NameAttributeValue::Offset(data) => {
+                                    writeln!(w, "Entry @ 0x{:x}", data)?;
+                                    continue;
+                                }
+                                gimli::NameAttributeValue::Flag(true) => {
+                                    writeln!(w, "<parent not indexed>")?;
+                                    continue;
+                                }
+                                _ => {}
+                            }
+                        }
+                        match *attr.value() {
+                            gimli::NameAttributeValue::Unsigned(data) => {
+                                writeln!(w, "0x{:08x}", data)?;
+                            }
+                            gimli::NameAttributeValue::Offset(offset) => {
+                                writeln!(w, "0x{:08x}", offset)?;
+                            }
+                            gimli::NameAttributeValue::Flag(true) => {
+                                writeln!(w, "yes")?;
+                            }
+                            gimli::NameAttributeValue::Flag(false) => {
+                                writeln!(w, "no")?;
+                            }
+                        }
+                    }
+                    writeln!(w, "      }}")?;
+                }
+                writeln!(w, "    }}")?;
+                global_name_counter += 1;
+            }
+        } else {
+            writeln!(w, "    EMPTY")?;
+        }
+        writeln!(w, "  ]")?;
+    }
+
     Ok(())
 }
