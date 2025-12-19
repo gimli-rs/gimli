@@ -805,12 +805,12 @@ impl<R: Reader> Dwarf<R> {
     ///
     /// ```ignore
     /// let dwarf = Dwarf::load(loader)?;
-    /// let entries = dwarf.find_entries_by_name("main")?;
+    /// let entries = dwarf.find_entries_by_name(b"main")?;
     /// for entry in entries {
     ///     println!("Found entry: {} at {:?}", entry.name(), entry.tag());
     /// }
     /// ```
-    pub fn find_entries_by_name(&self, name: &str) -> Result<Vec<NameLookupResult<R>>> {
+    pub fn find_entries_by_name(&self, name: &[u8]) -> Result<Vec<NameLookupResult<R>>> {
         self.debug_names
             .find_all_entries_by_name(name, &self.debug_str)
     }
@@ -823,7 +823,7 @@ impl<R: Reader> Dwarf<R> {
     /// # Arguments
     ///
     /// * `name` - The function name to search for
-    pub fn find_functions_by_name(&self, name: &str) -> Result<Vec<NameLookupResult<R>>> {
+    pub fn find_functions_by_name(&self, name: &[u8]) -> Result<Vec<NameLookupResult<R>>> {
         self.debug_names
             .find_functions_by_name(name, &self.debug_str)
     }
@@ -836,7 +836,7 @@ impl<R: Reader> Dwarf<R> {
     /// # Arguments
     ///
     /// * `name` - The variable name to search for
-    pub fn find_variables_by_name(&self, name: &str) -> Result<Vec<NameLookupResult<R>>> {
+    pub fn find_variables_by_name(&self, name: &[u8]) -> Result<Vec<NameLookupResult<R>>> {
         self.debug_names
             .find_variables_by_name(name, &self.debug_str)
     }

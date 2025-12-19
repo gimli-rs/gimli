@@ -30,7 +30,7 @@ use crate::read::{
     DebugStr, Dwarf, EndianSlice, Error, Reader, ReaderOffset, Result, Section, Unit, UnitHeader,
     UnitOffset,
 };
-use alloc::{string::String, vec::Vec};
+use alloc::vec::Vec;
 
 /// A name lookup result from the `.debug_names` section.
 #[derive(Debug, Clone)]
@@ -39,7 +39,7 @@ pub struct NameLookupResult<R: Reader> {
     pub entry: NameEntry<R>,
 
     /// The resolved name string for this entry.
-    pub name: String,
+    pub name: R,
 
     /// The offset to the compilation unit header in .debug_info.
     pub compilation_unit_offset: DebugInfoOffset<R::Offset>,
@@ -49,7 +49,7 @@ impl<R: Reader> NameLookupResult<R> {
     /// Create a new NameLookupResult.
     pub fn new(
         entry: NameEntry<R>,
-        name: String,
+        name: R,
         compilation_unit_offset: DebugInfoOffset<R::Offset>,
     ) -> Self {
         Self {
@@ -131,15 +131,12 @@ impl<R: Reader> DebugNames<R> {
     }
 
     /// Find entries by name with optional tag filtering.
-    pub fn find_entries_by_name<S>(
+    pub fn find_entries_by_name(
         &self,
-        name: &str,
-        debug_str: &DebugStr<S>,
+        name: &[u8],
+        debug_str: &DebugStr<R>,
         tag_filter: Option<constants::DwTag>,
-    ) -> Result<Vec<NameLookupResult<R>>>
-    where
-        S: Reader<Offset = R::Offset>,
-    {
+    ) -> Result<Vec<NameLookupResult<R>>> {
         // Compute the hash for the name
         let hash = compute_djb_hash(name);
 
@@ -156,8 +153,8 @@ impl<R: Reader> DebugNames<R> {
                 .into_iter()
                 .filter_map(|name_index| {
                     // Resolve the actual string to verify it matches
-                    let resolved_name = unit.resolve_name_at_index(debug_str, name_index)?;
-                    if resolved_name != name {
+                    let resolved_name = unit.resolve_name_at_index(debug_str, name_index).ok()?;
+                    if resolved_name.to_slice().ok()? != name {
                         return None;
                     }
 
@@ -186,38 +183,29 @@ impl<R: Reader> DebugNames<R> {
     }
 
     /// Find all entries in the debug_names section by name (no tag filtering).
-    pub fn find_all_entries_by_name<S>(
+    pub fn find_all_entries_by_name(
         &self,
-        name: &str,
-        debug_str: &DebugStr<S>,
-    ) -> Result<Vec<NameLookupResult<R>>>
-    where
-        S: Reader<Offset = R::Offset>,
-    {
+        name: &[u8],
+        debug_str: &DebugStr<R>,
+    ) -> Result<Vec<NameLookupResult<R>>> {
         self.find_entries_by_name(name, debug_str, None)
     }
 
     /// Find function entries (DW_TAG_subprogram) by name.
-    pub fn find_functions_by_name<S>(
+    pub fn find_functions_by_name(
         &self,
-        name: &str,
-        debug_str: &DebugStr<S>,
-    ) -> Result<Vec<NameLookupResult<R>>>
-    where
-        S: Reader<Offset = R::Offset>,
-    {
+        name: &[u8],
+        debug_str: &DebugStr<R>,
+    ) -> Result<Vec<NameLookupResult<R>>> {
         self.find_entries_by_name(name, debug_str, Some(constants::DW_TAG_subprogram))
     }
 
     /// Find variable entries (DW_TAG_variable) by name.
-    pub fn find_variables_by_name<S>(
+    pub fn find_variables_by_name(
         &self,
-        name: &str,
-        debug_str: &DebugStr<S>,
-    ) -> Result<Vec<NameLookupResult<R>>>
-    where
-        S: Reader<Offset = R::Offset>,
-    {
+        name: &[u8],
+        debug_str: &DebugStr<R>,
+    ) -> Result<Vec<NameLookupResult<R>>> {
         self.find_entries_by_name(name, debug_str, Some(constants::DW_TAG_variable))
     }
 }
@@ -241,10 +229,10 @@ impl<R> From<R> for DebugNames<R> {
 }
 
 /// Compute the DJB hash for a name (DWARF 5 Section 7.33)
-fn compute_djb_hash(name: &str) -> u32 {
+fn compute_djb_hash(name: &[u8]) -> u32 {
     let mut hash: u32 = 5381;
-    for byte in name.bytes() {
-        hash = hash.wrapping_mul(33).wrapping_add(byte as u32);
+    for byte in name {
+        hash = hash.wrapping_mul(33).wrapping_add(u32::from(*byte));
     }
     hash
 }
@@ -575,16 +563,12 @@ impl<R: Reader> NameIndex<R> {
     }
 
     /// Resolve a string from the `.debug_str` section.
-    pub fn resolve_string_name<S>(
+    pub fn resolve_string_name(
         &self,
-        debug_str: &DebugStr<S>,
+        debug_str: &DebugStr<R>,
         string_offset: DebugStrOffset<R::Offset>,
-    ) -> Result<String>
-    where
-        S: Reader<Offset = R::Offset>,
-    {
-        let string_reader = debug_str.get_str(string_offset)?;
-        Ok(string_reader.to_string_lossy()?.into_owned())
+    ) -> Result<R> {
+        debug_str.get_str(string_offset)
     }
 
     /// Iterate over all name entries in this index.
@@ -679,15 +663,9 @@ impl<R: Reader> NameIndex<R> {
     }
 
     /// Resolve a name at the given index using the provided debug_str section.
-    pub fn resolve_name_at_index<S>(&self, debug_str: &DebugStr<S>, index: u32) -> Option<String>
-    where
-        S: Reader<Offset = R::Offset>,
-    {
-        if let Ok(string_offset) = self.get_string_offset(index) {
-            self.resolve_string_name(debug_str, string_offset).ok()
-        } else {
-            None
-        }
+    pub fn resolve_name_at_index(&self, debug_str: &DebugStr<R>, index: u32) -> Result<R> {
+        let offset = self.get_string_offset(index)?;
+        debug_str.get_str(offset)
     }
 }
 
@@ -1278,10 +1256,7 @@ mod tests {
             assert_eq!(header.comp_unit_count(), 0);
             assert_eq!(header.bucket_count(), 0);
             assert_eq!(header.name_count(), 0);
-            assert_eq!(
-                header.augmentation_string().unwrap().to_string_lossy(),
-                "LLVM0700"
-            );
+            assert_eq!(header.augmentation_string().unwrap().slice(), b"LLVM0700");
         } else {
             panic!("Expected valid debug_names unit");
         }
@@ -1785,10 +1760,7 @@ mod tests {
             assert_eq!(header.bucket_count(), 4);
             assert_eq!(header.name_count(), 4);
             assert_eq!(header.abbrev_table_size(), 17);
-            assert_eq!(
-                header.augmentation_string().unwrap().to_string_lossy(),
-                "LLVM0700"
-            );
+            assert_eq!(header.augmentation_string().unwrap().slice(), b"LLVM0700");
         } else {
             panic!("Expected valid debug_names unit with real data");
         }
