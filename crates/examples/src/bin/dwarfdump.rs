@@ -2471,7 +2471,7 @@ fn dump_macro<R: Reader, W: Write>(
 fn dump_names<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<()> {
     writeln!(w, ".debug_names contents:")?;
 
-    let mut units = dwarf.debug_names.units();
+    let mut units = dwarf.debug_names.headers();
     while let Some(header) = units.next()? {
         writeln!(w, "Name Index @ 0x{:x} {{", header.offset(),)?;
 
@@ -2498,8 +2498,8 @@ fn dump_names<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result
         }
         writeln!(w, "  }}")?;
 
-        let unit = match gimli::NameIndex::new(header) {
-            Ok(unit) => unit,
+        let name_index = match gimli::NameIndex::new(header) {
+            Ok(name_index) => name_index,
             Err(e) => {
                 writeln!(w, "  Error parsing name index: {}", e)?;
                 continue;
@@ -2507,10 +2507,10 @@ fn dump_names<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result
         };
 
         // Compilation Unit offsets section
-        if unit.comp_unit_count() > 0 {
+        if name_index.comp_unit_count() > 0 {
             writeln!(w, "  Compilation Unit offsets [")?;
-            for i in 0..unit.comp_unit_count() {
-                let offset = unit.get_comp_unit_offset(i)?;
+            for i in 0..name_index.comp_unit_count() {
+                let offset = name_index.get_comp_unit_offset(i)?;
                 writeln!(w, "    CU[{}]: 0x{:08x}", i, offset.0)?;
             }
             writeln!(w, "  ]")?;
@@ -2518,7 +2518,7 @@ fn dump_names<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result
 
         // Abbreviations section
         writeln!(w, "  Abbreviations [")?;
-        let abbrev_table = unit.abbreviation_table();
+        let abbrev_table = name_index.abbreviation_table();
         for abbrev in abbrev_table.abbreviations() {
             writeln!(w, "    Abbreviation 0x{:x} {{", abbrev.code())?;
             writeln!(w, "      Tag: {}", abbrev.tag())?;
@@ -2530,7 +2530,7 @@ fn dump_names<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result
         writeln!(w, "  ]")?;
 
         // Bucket-based output with name resolution
-        match dump_names_by_bucket(w, &unit, dwarf) {
+        match dump_names_by_bucket(w, &name_index, dwarf) {
             Ok(_) => {}
             Err(e) => writeln!(w, "  Error dumping names by bucket: {:?}", e)?,
         }
@@ -2543,22 +2543,22 @@ fn dump_names<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result
 
 fn dump_names_by_bucket<R: Reader, W: Write>(
     w: &mut W,
-    unit: &gimli::NameIndex<R>,
+    name_index: &gimli::NameIndex<R>,
     dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
     // Display buckets with global name numbering
     let mut global_name_counter = 1;
-    for bucket_idx in 0..unit.bucket_count() {
+    for bucket_idx in 0..name_index.bucket_count() {
         writeln!(w, "  Bucket {} [", bucket_idx)?;
 
-        if let Some(bucket_start) = unit.get_bucket(bucket_idx)? {
-            for current_index in bucket_start.0..unit.name_count() {
+        if let Some(bucket_start) = name_index.get_bucket(bucket_idx)? {
+            for current_index in bucket_start.0..name_index.name_count() {
                 let current_index = gimli::NameTableIndex(current_index);
-                let hash = unit.get_hash(current_index)?;
-                if hash % unit.bucket_count() != bucket_idx {
+                let hash = name_index.get_hash(current_index)?;
+                if hash % name_index.bucket_count() != bucket_idx {
                     break;
                 }
-                let string_offset = unit.get_string_offset(current_index)?;
+                let string_offset = name_index.get_string_offset(current_index)?;
                 let string_name = dwarf.debug_str.get_str(string_offset)?;
 
                 writeln!(w, "    Name {} {{", global_name_counter)?;
@@ -2571,7 +2571,7 @@ fn dump_names_by_bucket<R: Reader, W: Write>(
                 )?;
 
                 // Show all entries for this name
-                let mut entries = unit.entries(current_index)?;
+                let mut entries = name_index.entries(current_index)?;
                 while let Some(entry) = entries.next()? {
                     writeln!(w, "      Entry @ offset 0x{:x} {{", entry.offset.into_u64())?;
 

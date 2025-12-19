@@ -123,7 +123,7 @@ impl<T> DebugNames<T> {
 
 impl<R: Reader> DebugNames<R> {
     /// Iterate over all name index tables in the `.debug_names` section.
-    pub fn units(&self) -> NameIndexHeaderIter<R> {
+    pub fn headers(&self) -> NameIndexHeaderIter<R> {
         NameIndexHeaderIter {
             input: self.section.clone(),
             end_offset: self.section.len(),
@@ -140,13 +140,13 @@ impl<R: Reader> DebugNames<R> {
         // Compute the hash for the name
         let hash = compute_djb_hash(name);
 
-        // Iterate through all debug_names units
-        let mut units = self.units();
+        // Iterate through all debug_names indexes
+        let mut headers = self.headers();
         let mut results: Vec<NameLookupResult<R>> = Vec::new();
 
-        while let Some(header) = units.next()? {
-            let unit = NameIndex::new(header)?;
-            let name_table_indexes = unit.lookup_by_hash(hash)?;
+        while let Some(header) = headers.next()? {
+            let name_index = NameIndex::new(header)?;
+            let name_table_indexes = name_index.lookup_by_hash(hash)?;
 
             // Process each name index in this unit using iterator combinators
             let unit_results: Vec<_> = name_table_indexes
@@ -155,14 +155,14 @@ impl<R: Reader> DebugNames<R> {
                     let name_table_index = name_table_index.ok()?;
 
                     // Resolve the actual string to verify it matches
-                    let resolved_name = unit
+                    let resolved_name = name_index
                         .resolve_name_at_index(debug_str, name_table_index)
                         .ok()?;
                     if resolved_name.to_slice().ok()? != name {
                         return None;
                     }
 
-                    let mut entries = unit.entries(name_table_index).ok()?;
+                    let mut entries = name_index.entries(name_table_index).ok()?;
                     while let Ok(Some(entry)) = entries.next() {
                         // Apply tag filter if specified
                         if tag_filter.is_some() && tag_filter != Some(entry.tag) {
@@ -170,7 +170,7 @@ impl<R: Reader> DebugNames<R> {
                         }
 
                         // Determine the compilation unit offset using the CU index from the entry
-                        let cu_offset = entry.compile_unit(&unit).ok()??;
+                        let cu_offset = entry.compile_unit(&name_index).ok()??;
                         return Some(NameLookupResult::new(entry, resolved_name, cu_offset));
                     }
                     None
@@ -356,7 +356,7 @@ impl<R: Reader> NameIndexHeader<R> {
         self.augmentation_string.as_ref()
     }
 
-    /// Return the unit length.
+    /// Return the index length.
     #[inline]
     pub fn length(&self) -> R::Offset {
         self.length
@@ -422,7 +422,6 @@ pub struct NameTableIndex(pub u32);
 
 /// A single name index table from the `.debug_names` section.
 ///
-/// Each unit corresponds to one name index table within the debug_names section.
 /// It provides access to the compilation unit table, type unit tables,
 /// hash buckets, and name entries that make up the accelerated lookup structure.
 #[derive(Debug)]
@@ -1171,8 +1170,8 @@ mod tests {
     fn test_debug_names_empty_section() {
         let section = &[];
         let debug_names = DebugNames::new(section, LittleEndian);
-        let mut units = debug_names.units();
-        assert!(units.next().unwrap().is_none());
+        let mut headers = debug_names.headers();
+        assert!(headers.next().unwrap().is_none());
     }
 
     #[test]
@@ -1260,18 +1259,18 @@ mod tests {
         section.extend_from_slice(&[0u8, 0, 0, 0, 0, 0, 0, 0]);
 
         let debug_names = DebugNames::new(&section, LittleEndian);
-        let mut units = debug_names.units();
+        let mut headers = debug_names.headers();
 
-        // Should have one unit
-        let first_unit = units.next().unwrap();
-        assert!(first_unit.is_some());
+        // Should have one header
+        let first_header = headers.next().unwrap();
+        assert!(first_header.is_some());
 
-        let header = first_unit.unwrap();
+        let header = first_header.unwrap();
         assert_eq!(header.version(), 5);
 
-        // Should be no more units
-        let second_unit = units.next().unwrap();
-        assert!(second_unit.is_none());
+        // Should be no more headers
+        let second_header = headers.next().unwrap();
+        assert!(second_header.is_none());
     }
 
     #[test]
@@ -1304,9 +1303,9 @@ mod tests {
         buf.extend_from_slice(augmentation.as_bytes());
 
         let debug_names = DebugNames::new(&buf, LittleEndian);
-        let mut units = debug_names.units();
+        let mut headers = debug_names.headers();
 
-        if let Ok(Some(header)) = units.next() {
+        if let Ok(Some(header)) = headers.next() {
             assert_eq!(header.version(), 5);
             assert_eq!(header.format(), Format::Dwarf32);
             assert_eq!(header.comp_unit_count(), 0);
@@ -1314,7 +1313,7 @@ mod tests {
             assert_eq!(header.name_count(), 0);
             assert_eq!(header.augmentation_string().unwrap().slice(), b"LLVM0700");
         } else {
-            panic!("Expected valid debug_names unit");
+            panic!("Expected valid debug_names header");
         }
     }
 
@@ -1364,16 +1363,16 @@ mod tests {
         buf.extend_from_slice(&[0u8]);
 
         let debug_names = DebugNames::new(&buf, LittleEndian);
-        let mut units = debug_names.units();
+        let mut headers = debug_names.headers();
 
-        if let Ok(Some(header)) = units.next() {
+        if let Ok(Some(header)) = headers.next() {
             assert_eq!(header.version(), 5);
             assert_eq!(header.format(), Format::Dwarf64);
             assert_eq!(header.comp_unit_count(), 1);
             assert_eq!(header.bucket_count(), 2);
             assert_eq!(header.name_count(), 1);
         } else {
-            panic!("Expected valid debug_names unit");
+            panic!("Expected valid debug_names header");
         }
     }
 
@@ -1389,9 +1388,9 @@ mod tests {
         buf.extend_from_slice(&[0u8, 0]);
 
         let debug_names = DebugNames::new(&buf, LittleEndian);
-        let mut units = debug_names.units();
+        let mut headers = debug_names.headers();
 
-        assert!(units.next().is_err());
+        assert!(headers.next().is_err());
     }
 
     #[test]
@@ -1402,9 +1401,9 @@ mod tests {
         buf.extend_from_slice(&[0u8, 0, 0, 0]);
 
         let debug_names = DebugNames::new(&buf, LittleEndian);
-        let mut units = debug_names.units();
+        let mut headers = debug_names.headers();
 
-        assert!(units.next().is_err());
+        assert!(headers.next().is_err());
     }
 
     #[test]
@@ -1421,10 +1420,10 @@ mod tests {
         buf.extend_from_slice(&[0u8; 30]);
 
         let debug_names = DebugNames::new(&buf, LittleEndian);
-        let mut units = debug_names.units();
+        let mut headers = debug_names.headers();
 
         // Should parse as DWARF32 with invalid length
-        assert!(units.next().is_err());
+        assert!(headers.next().is_err());
     }
 
     #[test]
@@ -1439,9 +1438,9 @@ mod tests {
         buf.extend_from_slice(&[0u8; 30]);
 
         let debug_names = DebugNames::new(&buf, LittleEndian);
-        let mut units = debug_names.units();
+        let mut headers = debug_names.headers();
 
-        assert!(units.next().is_err());
+        assert!(headers.next().is_err());
     }
 
     #[test]
@@ -1474,12 +1473,12 @@ mod tests {
         buf.extend_from_slice(&[0x00, 0x10, 0x00, 0x00]);
 
         let debug_names = DebugNames::new(&buf, LittleEndian);
-        if let Ok(Some(header)) = debug_names.units().next() {
+        if let Ok(Some(header)) = debug_names.headers().next() {
             // Test that we can successfully parse the header with empty hash table
             assert_eq!(header.bucket_count(), 0);
             assert_eq!(header.name_count(), 0);
         } else {
-            panic!("Expected valid debug_names unit");
+            panic!("Expected valid debug_names header");
         }
     }
 
@@ -1523,13 +1522,13 @@ mod tests {
         buf.extend_from_slice(&[0u8, 0u8]);
 
         let debug_names = DebugNames::new(&buf, LittleEndian);
-        if let Ok(Some(header)) = debug_names.units().next() {
+        if let Ok(Some(header)) = debug_names.headers().next() {
             // Test that we can successfully parse a header with single entry
             assert_eq!(header.bucket_count(), 1);
             assert_eq!(header.name_count(), 1);
             assert_eq!(header.comp_unit_count(), 1);
         } else {
-            panic!("Expected valid debug_names unit");
+            panic!("Expected valid debug_names header");
         }
     }
 
@@ -1581,13 +1580,13 @@ mod tests {
         buf.extend_from_slice(&[0u8]);
 
         let debug_names = DebugNames::new(&buf, LittleEndian);
-        if let Ok(Some(header)) = debug_names.units().next() {
+        if let Ok(Some(header)) = debug_names.headers().next() {
             // Test boundary case where bucket points to last name
             assert_eq!(header.bucket_count(), 3);
             assert_eq!(header.name_count(), 3);
             assert_eq!(header.comp_unit_count(), 1);
         } else {
-            panic!("Expected valid debug_names unit");
+            panic!("Expected valid debug_names header");
         }
     }
 
@@ -1621,12 +1620,12 @@ mod tests {
         buf.extend_from_slice(&[0x00, 0x10, 0x00, 0x00]);
 
         let debug_names = DebugNames::new(&buf, LittleEndian);
-        if let Ok(Some(header)) = debug_names.units().next() {
+        if let Ok(Some(header)) = debug_names.headers().next() {
             assert_eq!(header.abbrev_table_size(), 0);
             assert_eq!(header.bucket_count(), 0);
             assert_eq!(header.name_count(), 0);
         } else {
-            panic!("Expected valid debug_names unit");
+            panic!("Expected valid debug_names header");
         }
     }
 
@@ -1662,10 +1661,10 @@ mod tests {
         buf.extend_from_slice(&[0u8]);
 
         let debug_names = DebugNames::new(&buf, LittleEndian);
-        if let Ok(Some(header)) = debug_names.units().next() {
+        if let Ok(Some(header)) = debug_names.headers().next() {
             assert_eq!(header.abbrev_table_size(), 1);
         } else {
-            panic!("Expected valid debug_names unit");
+            panic!("Expected valid debug_names header");
         }
     }
 
@@ -1713,10 +1712,10 @@ mod tests {
         buf.extend_from_slice(&[0u8]);
 
         let debug_names = DebugNames::new(&buf, LittleEndian);
-        if let Ok(Some(header)) = debug_names.units().next() {
+        if let Ok(Some(header)) = debug_names.headers().next() {
             assert_eq!(header.abbrev_table_size(), 6);
         } else {
-            panic!("Expected valid debug_names unit");
+            panic!("Expected valid debug_names header");
         }
     }
 
@@ -1806,7 +1805,7 @@ mod tests {
         buf.extend_from_slice(&[0x02, 0x2D, 0x00, 0x00, 0x00, 0x01]);
 
         let debug_names = DebugNames::new(&buf, LittleEndian);
-        if let Ok(Some(header)) = debug_names.units().next() {
+        if let Ok(Some(header)) = debug_names.headers().next() {
             // Validate the parsed header matches real data structure
             assert_eq!(header.version(), 5);
             assert_eq!(header.format(), Format::Dwarf32);
@@ -1818,7 +1817,7 @@ mod tests {
             assert_eq!(header.abbrev_table_size(), 17);
             assert_eq!(header.augmentation_string().unwrap().slice(), b"LLVM0700");
         } else {
-            panic!("Expected valid debug_names unit with real data");
+            panic!("Expected valid debug_names header with real data");
         }
     }
 
@@ -1875,24 +1874,24 @@ mod tests {
         let buf = section.get_contents().unwrap();
 
         let debug_names = DebugNames::new(&buf, LittleEndian);
-        let mut units = debug_names.units();
+        let mut headers = debug_names.headers();
 
-        let header = units.next().unwrap().unwrap();
+        let header = headers.next().unwrap().unwrap();
         assert_eq!(header.name_count(), 2);
 
-        let unit = NameIndex::new(header).expect("Should create unit");
+        let name_index = NameIndex::new(header).expect("Should create name index");
 
         // Test accessing data arrays
-        assert_eq!(unit.bucket_count(), 2);
-        assert_eq!(unit.get_bucket(0), Ok(Some(NameTableIndex(0))));
-        assert_eq!(unit.get_bucket(1), Ok(None));
+        assert_eq!(name_index.bucket_count(), 2);
+        assert_eq!(name_index.get_bucket(0), Ok(Some(NameTableIndex(0))));
+        assert_eq!(name_index.get_bucket(1), Ok(None));
 
-        assert_eq!(unit.name_count(), 2);
-        assert_eq!(unit.get_hash(NameTableIndex(0)), Ok(0x12345678));
-        assert_eq!(unit.get_hash(NameTableIndex(1)), Ok(0x9abcdef0));
+        assert_eq!(name_index.name_count(), 2);
+        assert_eq!(name_index.get_hash(NameTableIndex(0)), Ok(0x12345678));
+        assert_eq!(name_index.get_hash(NameTableIndex(1)), Ok(0x9abcdef0));
 
         // Test entry iteration
-        let _entries = unit.entries(NameTableIndex(0)).unwrap();
+        let _entries = name_index.entries(NameTableIndex(0)).unwrap();
         /*
         // TODO: fix test to have valid entry data, and check it
         entries.next().unwrap().unwrap();
@@ -1922,11 +1921,11 @@ mod tests {
         let buf = section.get_contents().unwrap();
 
         let debug_names = DebugNames::new(&buf, LittleEndian);
-        let mut units = debug_names.units();
+        let mut headers = debug_names.headers();
 
-        if let Ok(Some(header)) = units.next() {
-            let unit = NameIndex::new(header).expect("Should create unit");
-            let mut entries = unit.entries(NameTableIndex(0)).unwrap();
+        if let Ok(Some(header)) = headers.next() {
+            let name_index = NameIndex::new(header).expect("Should create name index");
+            let mut entries = name_index.entries(NameTableIndex(0)).unwrap();
             // Should immediately return None for empty iterator
             assert!(entries.next().unwrap().is_none());
             // Multiple calls should continue to return None
