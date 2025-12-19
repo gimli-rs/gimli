@@ -412,6 +412,13 @@ impl<R: Reader> NameIndexHeader<R> {
     }
 }
 
+/// An index into the name table of a `NameIndex`.
+///
+/// This is used as an index into the list of string offsets, the list of entry
+/// offsets, and the list of hashes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NameTableIndex(pub u32);
+
 /// A single name index table from the `.debug_names` section.
 ///
 /// Each unit corresponds to one name index table within the debug_names section.
@@ -584,7 +591,7 @@ impl<R: Reader> NameIndex<R> {
     }
 
     /// Look up name indices by hash value.
-    pub fn lookup_by_hash(&self, hash_value: u32) -> Result<Vec<u32>> {
+    pub fn lookup_by_hash(&self, hash_value: u32) -> Result<Vec<NameTableIndex>> {
         let bucket_count = self.bucket_count();
         if bucket_count == 0 {
             return Ok(Vec::new());
@@ -610,26 +617,26 @@ impl<R: Reader> NameIndex<R> {
     }
 
     /// Get a specific hash value by index (used internally).
-    pub fn get_hash(&self, index: u32) -> Result<u32> {
+    pub fn get_hash(&self, index: NameTableIndex) -> Result<u32> {
         let mut reader = self.hash_table_data.clone();
-        reader.skip(R::Offset::from_u32(index * 4))?;
+        reader.skip(R::Offset::from_u32(index.0 * 4))?;
         reader.read_u32()
     }
 
     /// Get a specific string offset by index.
-    pub fn get_string_offset(&self, index: u32) -> Result<DebugStrOffset<R::Offset>> {
+    pub fn get_string_offset(&self, index: NameTableIndex) -> Result<DebugStrOffset<R::Offset>> {
         let mut reader = self.name_table_data.clone();
         reader.skip(R::Offset::from_u32(
-            index * u32::from(self.format.word_size()),
+            index.0 * u32::from(self.format.word_size()),
         ))?;
         reader.read_offset(self.format).map(DebugStrOffset)
     }
 
     /// Get a specific string offset by index.
-    pub fn get_entry_offset(&self, index: u32) -> Result<R::Offset> {
+    pub fn get_entry_offset(&self, index: NameTableIndex) -> Result<R::Offset> {
         let mut reader = self.entry_offset_data.clone();
         reader.skip(R::Offset::from_u32(
-            index * u32::from(self.format.word_size()),
+            index.0 * u32::from(self.format.word_size()),
         ))?;
         reader.read_offset(self.format)
     }
@@ -638,21 +645,21 @@ impl<R: Reader> NameIndex<R> {
     ///
     /// Returns a vector of indices into the hash array that belong to the given bucket.
     /// This follows the DWARF 5 hash collision handling mechanism.
-    pub fn bucket_names(&self, bucket_index: u32) -> Result<Vec<u32>> {
+    pub fn bucket_names(&self, bucket_index: u32) -> Result<Vec<NameTableIndex>> {
         let bucket_value = self.get_bucket(bucket_index)?;
         if bucket_value == 0 {
             return Ok(Vec::new()); // Empty bucket
         }
+        let start_index = bucket_value - 1;
 
         let mut indices = Vec::new();
-        let start_index = bucket_value.saturating_sub(1);
 
         // Collect all consecutive names in this bucket
         // (hash table uses linear probing for collision resolution)
         for i in start_index..self.name_count() {
-            let hash = self.get_hash(i)?;
+            let hash = self.get_hash(NameTableIndex(i))?;
             if hash % self.bucket_count() == bucket_index {
-                indices.push(i);
+                indices.push(NameTableIndex(i));
             } else if i > start_index {
                 // No longer in the same bucket chain
                 break;
@@ -663,7 +670,11 @@ impl<R: Reader> NameIndex<R> {
     }
 
     /// Resolve a name at the given index using the provided debug_str section.
-    pub fn resolve_name_at_index(&self, debug_str: &DebugStr<R>, index: u32) -> Result<R> {
+    pub fn resolve_name_at_index(
+        &self,
+        debug_str: &DebugStr<R>,
+        index: NameTableIndex,
+    ) -> Result<R> {
         let offset = self.get_string_offset(index)?;
         debug_str.get_str(offset)
     }
@@ -1830,8 +1841,8 @@ mod tests {
             assert_eq!(unit.get_bucket(1), Ok(0));
 
             assert_eq!(unit.name_count(), 2);
-            assert_eq!(unit.get_hash(0), Ok(0x12345678));
-            assert_eq!(unit.get_hash(1), Ok(0x9abcdef0));
+            assert_eq!(unit.get_hash(NameTableIndex(0)), Ok(0x12345678));
+            assert_eq!(unit.get_hash(NameTableIndex(1)), Ok(0x9abcdef0));
 
             // Test entry iteration
             match unit.entries(0) {

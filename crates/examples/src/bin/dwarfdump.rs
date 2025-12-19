@@ -2549,11 +2549,12 @@ fn dump_names_by_bucket<R: Reader, W: Write>(
     // Display buckets with global name numbering
     let mut global_name_counter = 1;
     for bucket_idx in 0..unit.bucket_count() {
-        let bucket_start = unit.get_bucket(bucket_idx)?;
         writeln!(w, "  Bucket {} [", bucket_idx)?;
 
+        let bucket_start = unit.get_bucket(bucket_idx)?;
         if bucket_start > 0 {
             for current_index in (bucket_start - 1)..unit.name_count() {
+                let current_index = gimli::NameTableIndex(current_index);
                 let hash = unit.get_hash(current_index)?;
                 let computed_bucket = hash % unit.bucket_count();
                 if computed_bucket != bucket_idx {
