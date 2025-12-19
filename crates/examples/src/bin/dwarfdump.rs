@@ -2551,13 +2551,11 @@ fn dump_names_by_bucket<R: Reader, W: Write>(
     for bucket_idx in 0..unit.bucket_count() {
         writeln!(w, "  Bucket {} [", bucket_idx)?;
 
-        let bucket_start = unit.get_bucket(bucket_idx)?;
-        if bucket_start > 0 {
-            for current_index in (bucket_start - 1)..unit.name_count() {
+        if let Some(bucket_start) = unit.get_bucket(bucket_idx)? {
+            for current_index in bucket_start.0..unit.name_count() {
                 let current_index = gimli::NameTableIndex(current_index);
                 let hash = unit.get_hash(current_index)?;
-                let computed_bucket = hash % unit.bucket_count();
-                if computed_bucket != bucket_idx {
+                if hash % unit.bucket_count() != bucket_idx {
                     break;
                 }
                 let string_offset = unit.get_string_offset(current_index)?;

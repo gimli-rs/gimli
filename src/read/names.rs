@@ -152,6 +152,8 @@ impl<R: Reader> DebugNames<R> {
             let unit_results: Vec<_> = name_indices
                 .into_iter()
                 .filter_map(|name_index| {
+                    let name_index = name_index.ok()?;
+
                     // Resolve the actual string to verify it matches
                     let resolved_name = unit.resolve_name_at_index(debug_str, name_index).ok()?;
                     if resolved_name.to_slice().ok()? != name {
@@ -428,6 +430,7 @@ pub struct NameTableIndex(pub u32);
 pub struct NameIndex<R: Reader> {
     format: Format,
     bucket_count: u32,
+    name_count: u32,
 
     // Pre-sliced readers for each section
     comp_unit_list: R,
@@ -476,6 +479,7 @@ impl<R: Reader> NameIndex<R> {
         Ok(NameIndex {
             format: header.format,
             bucket_count: header.bucket_count,
+            name_count: header.name_count,
             comp_unit_list,
             local_type_unit_list,
             foreign_type_unit_list,
@@ -526,10 +530,15 @@ impl<R: Reader> NameIndex<R> {
     }
 
     /// Get the start of a bucket.
-    pub fn get_bucket(&self, index: u32) -> Result<u32> {
+    pub fn get_bucket(&self, index: u32) -> Result<Option<NameTableIndex>> {
         let mut reader = self.bucket_data.clone();
         reader.skip(R::Offset::from_u32(index * 4))?;
-        reader.read_u32()
+        let start = reader.read_u32()?;
+        if start == 0 {
+            Ok(None)
+        } else {
+            Ok(Some(NameTableIndex(start - 1)))
+        }
     }
 
     /// Get the abbreviation table for this name index table.
@@ -591,29 +600,13 @@ impl<R: Reader> NameIndex<R> {
     }
 
     /// Look up name indices by hash value.
-    pub fn lookup_by_hash(&self, hash_value: u32) -> Result<Vec<NameTableIndex>> {
-        let bucket_count = self.bucket_count();
-        if bucket_count == 0 {
-            return Ok(Vec::new());
-        }
-
-        let bucket_index = hash_value % bucket_count;
-        let bucket_names = self.bucket_names(bucket_index)?;
-
-        // Filter by exact hash match
-        let mut matching_indices = Vec::new();
-        for &name_index in &bucket_names {
-            if self.get_hash(name_index) == Ok(hash_value) {
-                matching_indices.push(name_index);
-            }
-        }
-
-        Ok(matching_indices)
+    pub fn lookup_by_hash(&self, hash_value: u32) -> Result<NameHashIter<'_, R>> {
+        NameHashIter::new(self, hash_value)
     }
 
     /// Get the number of names in the hash table.
     pub fn name_count(&self) -> u32 {
-        self.hash_table_data.len().into_u64() as u32 / 4
+        self.name_count
     }
 
     /// Get a specific hash value by index (used internally).
@@ -641,34 +634,6 @@ impl<R: Reader> NameIndex<R> {
         reader.read_offset(self.format)
     }
 
-    /// Get all name indices for a specific hash bucket.
-    ///
-    /// Returns a vector of indices into the hash array that belong to the given bucket.
-    /// This follows the DWARF 5 hash collision handling mechanism.
-    pub fn bucket_names(&self, bucket_index: u32) -> Result<Vec<NameTableIndex>> {
-        let bucket_value = self.get_bucket(bucket_index)?;
-        if bucket_value == 0 {
-            return Ok(Vec::new()); // Empty bucket
-        }
-        let start_index = bucket_value - 1;
-
-        let mut indices = Vec::new();
-
-        // Collect all consecutive names in this bucket
-        // (hash table uses linear probing for collision resolution)
-        for i in start_index..self.name_count() {
-            let hash = self.get_hash(NameTableIndex(i))?;
-            if hash % self.bucket_count() == bucket_index {
-                indices.push(NameTableIndex(i));
-            } else if i > start_index {
-                // No longer in the same bucket chain
-                break;
-            }
-        }
-
-        Ok(indices)
-    }
-
     /// Resolve a name at the given index using the provided debug_str section.
     pub fn resolve_name_at_index(
         &self,
@@ -677,6 +642,75 @@ impl<R: Reader> NameIndex<R> {
     ) -> Result<R> {
         let offset = self.get_string_offset(index)?;
         debug_str.get_str(offset)
+    }
+}
+
+/// An iterator over the hash entries in a name index table that match a hash value.
+#[derive(Debug)]
+pub struct NameHashIter<'a, R: Reader> {
+    name_index: &'a NameIndex<R>,
+    name_table_index: NameTableIndex,
+    hash: u32,
+    bucket_index: u32,
+}
+
+impl<'a, R: Reader> NameHashIter<'a, R> {
+    fn new(name_index: &'a NameIndex<R>, hash: u32) -> Result<Self> {
+        if name_index.bucket_count == 0 {
+            return Ok(NameHashIter {
+                name_index,
+                name_table_index: NameTableIndex(name_index.name_count),
+                hash,
+                bucket_index: 0,
+            });
+        }
+
+        let bucket_index = hash % name_index.bucket_count;
+        let name_table_index = name_index
+            .get_bucket(bucket_index)?
+            .unwrap_or(NameTableIndex(name_index.name_count));
+
+        Ok(NameHashIter {
+            name_index,
+            name_table_index,
+            hash,
+            bucket_index,
+        })
+    }
+
+    /// Advance the iterator and return the next name entry.
+    pub fn next(&mut self) -> Result<Option<NameTableIndex>> {
+        loop {
+            let name_table_index = self.name_table_index;
+            if name_table_index.0 >= self.name_index.name_count {
+                return Ok(None);
+            }
+            let hash = self.name_index.get_hash(self.name_table_index)?;
+            self.name_table_index.0 += 1;
+            if hash == self.hash {
+                return Ok(Some(name_table_index));
+            } else if hash % self.name_index.bucket_count != self.bucket_index {
+                return Ok(None);
+            }
+        }
+    }
+}
+
+#[cfg(feature = "fallible-iterator")]
+impl<'a, R: Reader> fallible_iterator::FallibleIterator for NameHashIter<'a, R> {
+    type Item = NameTableIndex;
+    type Error = Error;
+
+    fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
+        NameHashIter::next(self)
+    }
+}
+
+impl<'a, R: Reader> Iterator for NameHashIter<'a, R> {
+    type Item = Result<NameTableIndex>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        NameHashIter::next(self).transpose()
     }
 }
 
@@ -1837,8 +1871,8 @@ mod tests {
 
             // Test accessing data arrays
             assert_eq!(unit.bucket_count(), 2);
-            assert_eq!(unit.get_bucket(0), Ok(1));
-            assert_eq!(unit.get_bucket(1), Ok(0));
+            assert_eq!(unit.get_bucket(0), Ok(Some(NameTableIndex(0))));
+            assert_eq!(unit.get_bucket(1), Ok(None));
 
             assert_eq!(unit.name_count(), 2);
             assert_eq!(unit.get_hash(NameTableIndex(0)), Ok(0x12345678));
