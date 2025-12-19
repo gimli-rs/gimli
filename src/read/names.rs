@@ -160,10 +160,7 @@ impl<R: Reader> DebugNames<R> {
                         return None;
                     }
 
-                    // Get the entry offset for this name index
-                    let entry_offset = unit.get_entry_offset(name_index).ok()?;
-
-                    let mut entries = unit.entries(entry_offset).ok()?;
+                    let mut entries = unit.entries(name_index).ok()?;
                     while let Ok(Some(entry)) = entries.next() {
                         // Apply tag filter if specified
                         if tag_filter.is_some() && tag_filter != Some(entry.tag) {
@@ -457,7 +454,11 @@ impl<R: Reader> NameIndex<R> {
         let local_tu_size = header.local_type_unit_count as u64 * offset_size;
         let foreign_tu_size = header.foreign_type_unit_count as u64 * 8; // Always 8 bytes per signature
         let buckets_size = header.bucket_count as u64 * 4;
-        let hash_table_size = header.name_count as u64 * 4; // 4 bytes per u32
+        let hash_table_size = if header.bucket_count == 0 {
+            0
+        } else {
+            header.name_count as u64 * 4
+        };
         let name_table_size = header.name_count as u64 * offset_size;
         let abbrev_size = header.abbrev_table_size as u64;
 
@@ -587,8 +588,12 @@ impl<R: Reader> NameIndex<R> {
         debug_str.get_str(string_offset)
     }
 
-    /// Iterate over all name entries in this index.
-    pub fn entries(&self, offset: R::Offset) -> Result<NameEntryIter<'_, R>> {
+    /// Iterate over the series of name entries at the given offset.
+    ///
+    /// Each name in a name index table corresponds to a series of entries
+    /// with that name.
+    pub fn entries(&self, index: NameTableIndex) -> Result<NameEntryIter<'_, R>> {
+        let offset = self.get_entry_offset(index)?;
         let mut entries = self.entry_pool.clone();
         let end_offset = entries.len();
         entries.skip(offset)?;
@@ -714,7 +719,10 @@ impl<'a, R: Reader> Iterator for NameHashIter<'a, R> {
     }
 }
 
-/// An iterator over the name entries in a name index table.
+/// An iterator for a series of name entries in a name index table.
+///
+/// Each name in a name index table corresponds to a series of entries
+/// with that name.
 #[derive(Debug)]
 pub struct NameEntryIter<'a, R: Reader> {
     unit: &'a NameIndex<R>,
@@ -1856,6 +1864,8 @@ mod tests {
             // Entry pool
             .debug_names_entry(1, &[0x34, 0x12, 0x00, 0x00]) // First entry
             .debug_names_entry(1, &[0x78, 0x56, 0x00, 0x00]) // Second entry
+            // Entry series terminator
+            .D8(0)
             .debug_names_end(&end);
 
         length.set_const((&end - &start) as u64);
@@ -1864,42 +1874,28 @@ mod tests {
         let debug_names = DebugNames::new(&buf, LittleEndian);
         let mut units = debug_names.units();
 
-        if let Ok(Some(header)) = units.next() {
-            assert_eq!(header.name_count(), 2);
+        let header = units.next().unwrap().unwrap();
+        assert_eq!(header.name_count(), 2);
 
-            let unit = NameIndex::new(header).expect("Should create unit");
+        let unit = NameIndex::new(header).expect("Should create unit");
 
-            // Test accessing data arrays
-            assert_eq!(unit.bucket_count(), 2);
-            assert_eq!(unit.get_bucket(0), Ok(Some(NameTableIndex(0))));
-            assert_eq!(unit.get_bucket(1), Ok(None));
+        // Test accessing data arrays
+        assert_eq!(unit.bucket_count(), 2);
+        assert_eq!(unit.get_bucket(0), Ok(Some(NameTableIndex(0))));
+        assert_eq!(unit.get_bucket(1), Ok(None));
 
-            assert_eq!(unit.name_count(), 2);
-            assert_eq!(unit.get_hash(NameTableIndex(0)), Ok(0x12345678));
-            assert_eq!(unit.get_hash(NameTableIndex(1)), Ok(0x9abcdef0));
+        assert_eq!(unit.name_count(), 2);
+        assert_eq!(unit.get_hash(NameTableIndex(0)), Ok(0x12345678));
+        assert_eq!(unit.get_hash(NameTableIndex(1)), Ok(0x9abcdef0));
 
-            // Test entry iteration
-            match unit.entries(0) {
-                Ok(mut entries) => {
-                    // Should be able to iterate over entries
-                    let mut count = 0;
-                    while let Ok(Some(_entry)) = entries.next() {
-                        count += 1;
-                        if count > 10 {
-                            // Safety limit
-                            panic!("Too many entries - possible infinite loop");
-                        }
-                    }
-                    // We expect to process some entries (exact count may vary due to implementation details)
-                }
-                Err(_) => {
-                    // Entry iteration may fail with current implementation, which is acceptable
-                    // The important thing is that the API exists and data structures parse correctly
-                }
-            }
-        } else {
-            panic!("Expected valid debug_names unit");
-        }
+        // Test entry iteration
+        let _entries = unit.entries(NameTableIndex(0)).unwrap();
+        /*
+        // TODO: fix test to have valid entry data, and check it
+        entries.next().unwrap().unwrap();
+        entries.next().unwrap().unwrap();
+        assert!(entries.next().unwrap().is_some());
+        */
     }
 
     #[test]
@@ -1910,7 +1906,13 @@ mod tests {
         let end = Label::new();
 
         let section = Section::new()
-            .debug_names_header(Format::Dwarf32, &length, &start, 5, 0, 0, 0, 0, 0, 0, "")
+            .debug_names_header(Format::Dwarf32, &length, &start, 5, 0, 0, 0, 0, 1, 0, "")
+            // String offsets
+            .debug_names_string_offset(0x100)
+            // Entry offsets
+            .debug_names_entry_offset(0)
+            // Entry series terminator
+            .D8(0)
             .debug_names_end(&end);
 
         length.set_const((&end - &start) as u64);
@@ -1921,18 +1923,11 @@ mod tests {
 
         if let Ok(Some(header)) = units.next() {
             let unit = NameIndex::new(header).expect("Should create unit");
-
-            match unit.entries(0) {
-                Ok(mut entries) => {
-                    // Should immediately return None for empty iterator
-                    assert!(entries.next().unwrap().is_none());
-                    // Multiple calls should continue to return None
-                    assert!(entries.next().unwrap().is_none());
-                }
-                Err(_) => {
-                    // Empty iterator creation may fail, which is acceptable
-                }
-            }
+            let mut entries = unit.entries(NameTableIndex(0)).unwrap();
+            // Should immediately return None for empty iterator
+            assert!(entries.next().unwrap().is_none());
+            // Multiple calls should continue to return None
+            assert!(entries.next().unwrap().is_none());
         }
     }
 }

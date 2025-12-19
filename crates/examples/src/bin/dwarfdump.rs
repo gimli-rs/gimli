@@ -2560,7 +2560,6 @@ fn dump_names_by_bucket<R: Reader, W: Write>(
                 }
                 let string_offset = unit.get_string_offset(current_index)?;
                 let string_name = dwarf.debug_str.get_str(string_offset)?;
-                let entry_offset = unit.get_entry_offset(current_index)?;
 
                 writeln!(w, "    Name {} {{", global_name_counter)?;
                 writeln!(w, "      Hash: 0x{:X}", hash)?;
@@ -2572,7 +2571,7 @@ fn dump_names_by_bucket<R: Reader, W: Write>(
                 )?;
 
                 // Show all entries for this name
-                let mut entries = unit.entries(entry_offset)?;
+                let mut entries = unit.entries(current_index)?;
                 while let Some(entry) = entries.next()? {
                     writeln!(w, "      Entry @ offset 0x{:x} {{", entry.offset.into_u64())?;
 
