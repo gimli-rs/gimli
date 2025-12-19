@@ -146,21 +146,23 @@ impl<R: Reader> DebugNames<R> {
 
         while let Some(header) = units.next()? {
             let unit = NameIndex::new(header)?;
-            let name_indices = unit.lookup_by_hash(hash)?;
+            let name_table_indexes = unit.lookup_by_hash(hash)?;
 
             // Process each name index in this unit using iterator combinators
-            let unit_results: Vec<_> = name_indices
+            let unit_results: Vec<_> = name_table_indexes
                 .into_iter()
-                .filter_map(|name_index| {
-                    let name_index = name_index.ok()?;
+                .filter_map(|name_table_index| {
+                    let name_table_index = name_table_index.ok()?;
 
                     // Resolve the actual string to verify it matches
-                    let resolved_name = unit.resolve_name_at_index(debug_str, name_index).ok()?;
+                    let resolved_name = unit
+                        .resolve_name_at_index(debug_str, name_table_index)
+                        .ok()?;
                     if resolved_name.to_slice().ok()? != name {
                         return None;
                     }
 
-                    let mut entries = unit.entries(name_index).ok()?;
+                    let mut entries = unit.entries(name_table_index).ok()?;
                     while let Ok(Some(entry)) = entries.next() {
                         // Apply tag filter if specified
                         if tag_filter.is_some() && tag_filter != Some(entry.tag) {
@@ -547,38 +549,6 @@ impl<R: Reader> NameIndex<R> {
         &self.abbreviations
     }
 
-    /// Parse a single entry from the entry pool.
-    fn parse_entry_pool_entry(
-        &self,
-        entry_reader: &mut R,
-        offset: R::Offset,
-        abbrev_table: &NameAbbreviationTable,
-    ) -> Result<Option<NameEntry<R>>> {
-        let abbrev_code = entry_reader.read_uleb128()?;
-        if abbrev_code == 0 {
-            return Ok(None);
-        }
-        let Some(abbrev) = abbrev_table.get(abbrev_code) else {
-            return Err(Error::UnknownAbbreviation(abbrev_code));
-        };
-        let tag = abbrev.tag();
-        let specs = abbrev.attributes();
-        let mut attrs = Vec::with_capacity(specs.len());
-        for spec in specs {
-            let name = spec.name();
-            let form = spec.form();
-            let value = read_debug_names_form_value(entry_reader, form)?;
-            attrs.push(NameAttribute { name, form, value });
-        }
-
-        Ok(Some(NameEntry {
-            offset,
-            abbrev_code,
-            tag,
-            attrs,
-        }))
-    }
-
     /// Resolve a string from the `.debug_str` section.
     pub fn resolve_string_name(
         &self,
@@ -593,15 +563,7 @@ impl<R: Reader> NameIndex<R> {
     /// Each name in a name index table corresponds to a series of entries
     /// with that name.
     pub fn entries(&self, index: NameTableIndex) -> Result<NameEntryIter<'_, R>> {
-        let offset = self.get_entry_offset(index)?;
-        let mut entries = self.entry_pool.clone();
-        let end_offset = entries.len();
-        entries.skip(offset)?;
-        Ok(NameEntryIter {
-            unit: self,
-            entries,
-            end_offset,
-        })
+        NameEntryIter::new(self, index)
     }
 
     /// Look up name indices by hash value.
@@ -725,12 +687,24 @@ impl<'a, R: Reader> Iterator for NameHashIter<'a, R> {
 /// with that name.
 #[derive(Debug)]
 pub struct NameEntryIter<'a, R: Reader> {
-    unit: &'a NameIndex<R>,
     entries: R,
     end_offset: R::Offset,
+    abbreviations: &'a NameAbbreviationTable,
 }
 
 impl<'a, R: Reader> NameEntryIter<'a, R> {
+    fn new(name_index: &'a NameIndex<R>, index: NameTableIndex) -> Result<Self> {
+        let offset = name_index.get_entry_offset(index)?;
+        let mut entries = name_index.entry_pool.clone();
+        let end_offset = entries.len();
+        entries.skip(offset)?;
+        Ok(NameEntryIter {
+            entries,
+            end_offset,
+            abbreviations: &name_index.abbreviations,
+        })
+    }
+
     /// Advance the iterator and return the next name entry.
     pub fn next(&mut self) -> Result<Option<NameEntry<R>>> {
         if self.entries.is_empty() {
@@ -738,12 +712,10 @@ impl<'a, R: Reader> NameEntryIter<'a, R> {
         }
 
         let offset = self.end_offset - self.entries.len();
-        match self
-            .unit
-            .parse_entry_pool_entry(&mut self.entries, offset, &self.unit.abbreviations)
-        {
+        match NameEntry::parse(&mut self.entries, offset, self.abbreviations) {
             Ok(Some(entry)) => Ok(Some(entry)),
             Ok(None) => {
+                // Series end.
                 self.entries.empty();
                 Ok(None)
             }
@@ -814,6 +786,37 @@ impl<R: Reader> NameEntry<R> {
             }
         }
         Ok(None)
+    }
+
+    /// Parse a single entry from the entry pool.
+    fn parse(
+        entry_reader: &mut R,
+        offset: R::Offset,
+        abbreviations: &NameAbbreviationTable,
+    ) -> Result<Option<NameEntry<R>>> {
+        let abbrev_code = entry_reader.read_uleb128()?;
+        if abbrev_code == 0 {
+            return Ok(None);
+        }
+        let Some(abbrev) = abbreviations.get(abbrev_code) else {
+            return Err(Error::UnknownAbbreviation(abbrev_code));
+        };
+        let tag = abbrev.tag();
+        let specs = abbrev.attributes();
+        let mut attrs = Vec::with_capacity(specs.len());
+        for spec in specs {
+            let name = spec.name();
+            let form = spec.form();
+            let value = read_debug_names_form_value(entry_reader, form)?;
+            attrs.push(NameAttribute { name, form, value });
+        }
+
+        Ok(Some(NameEntry {
+            offset,
+            abbrev_code,
+            tag,
+            attrs,
+        }))
     }
 }
 
