@@ -3,10 +3,10 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use crate::common::{
-    DebugAddrBase, DebugAddrIndex, DebugLineStrOffset, DebugLocListsBase, DebugLocListsIndex,
-    DebugMacinfoOffset, DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
-    DebugStrOffsetsIndex, DebugTypeSignature, DwarfFileType, DwoId, Encoding, LocationListsOffset,
-    RangeListsOffset, RawRangeListsOffset, SectionId,
+    DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineStrOffset, DebugLocListsBase,
+    DebugLocListsIndex, DebugMacinfoOffset, DebugRngListsBase, DebugRngListsIndex, DebugStrOffset,
+    DebugStrOffsetsBase, DebugStrOffsetsIndex, DebugTypeSignature, DwarfFileType, DwoId, Encoding,
+    LocationListsOffset, RangeListsOffset, RawRangeListsOffset, SectionId,
 };
 use crate::read::{
     Abbreviations, AbbreviationsCache, AbbreviationsCacheStrategy, AttributeValue, DebugAbbrev,
@@ -362,6 +362,12 @@ impl<R: Reader> Dwarf<R> {
     #[inline]
     pub fn units(&self) -> DebugInfoUnitHeadersIter<R> {
         self.debug_info.units()
+    }
+
+    /// Parse the unit header at the given offset in the `.debug_info` section.
+    #[inline]
+    pub fn unit_header(&self, offset: DebugInfoOffset<R::Offset>) -> Result<UnitHeader<R>> {
+        self.debug_info.header_from_offset(offset)
     }
 
     /// Construct a new `Unit` from the given unit header.

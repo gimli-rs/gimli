@@ -61,9 +61,7 @@ impl<R: Reader> NameLookupResult<R> {
 
     /// Get the compilation unit header for this entry.
     pub fn resolve_unit_header(&self, dwarf: &Dwarf<R>) -> Result<UnitHeader<R>> {
-        dwarf
-            .debug_info
-            .header_from_offset(self.compilation_unit_offset)
+        dwarf.unit_header(self.compilation_unit_offset)
     }
 
     /// Resolve this entry to its full compilation unit.
