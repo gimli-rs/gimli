@@ -26,7 +26,7 @@ fn bench_leb128() {
     let mut c = Criterion::default().configure_from_args();
     c.bench_function("leb128 unsigned small", bench_reading_leb128_unsigned_small);
     c.bench_function("leb128 unsigned large", bench_reading_leb128_unsigned_large);
-    c.bench_function("leb128 u16 large", bench_reading_leb128_u16_small);
+    c.bench_function("leb128 u16 small", bench_reading_leb128_u16_small);
 }
 
 /// Benchmark reading of small (one or two byte in encoded form)
@@ -104,7 +104,7 @@ fn bench_reading_leb128_u16_small(b: &mut Bencher) {
     let () = b.iter(|| {
         for (data, _) in &data {
             let mut slice = black_box(EndianSlice::new(data, NativeEndian));
-            let v = leb128::read::unsigned(&mut slice).unwrap();
+            let v = leb128::read::u16(&mut slice).unwrap();
             black_box(v);
         }
     });
