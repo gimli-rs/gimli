@@ -177,9 +177,6 @@ pub(crate) mod convert {
         /// Create a converter for all units in the `.debug_info` section of the given
         /// DWARF object.
         ///
-        /// `encoding` applies to the converted units, and may be different from the
-        /// source unit. If `None`, the encoding from the source unit is used.
-        ///
         /// ## Example
         ///
         /// Convert DWARF sections using `convert`.
@@ -210,9 +207,6 @@ pub(crate) mod convert {
         ///
         /// `filter` determines which DIEs are converted. This can be created using
         /// [`FilterUnitSection::new`].
-        ///
-        /// `encoding` applies to the converted units, and may be different from the
-        /// source unit. If `None`, the encoding from the source unit is used.
         ///
         /// ## Example
         ///
