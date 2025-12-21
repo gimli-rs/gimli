@@ -8,6 +8,7 @@
 
 use gimli::write::Writer;
 use object::{Object, ObjectSection};
+use std::io::Write;
 use std::{borrow, env, error, fs, io};
 
 fn main() -> Result<(), Box<dyn error::Error>> {
@@ -119,6 +120,8 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     let write_file = fs::File::create(write_path)?;
     let mut write_buffer = object::write::StreamingBuffer::new(io::BufWriter::new(write_file));
     write_elf.write(&mut write_buffer)?;
+    write_buffer.result()?;
+    write_buffer.into_inner().flush()?;
 
     Ok(())
 }
