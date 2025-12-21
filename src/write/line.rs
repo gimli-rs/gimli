@@ -395,6 +395,7 @@ impl LineProgram {
     ///
     /// Panics if the address_offset decreases.
     pub fn generate_row(&mut self) {
+        self.in_sequence = true;
         // Output fields that are reset on every row.
         if self.row.discriminator != 0 {
             self.instructions
