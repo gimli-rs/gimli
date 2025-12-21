@@ -77,8 +77,6 @@ macro_rules! define_string_table {
             }
 
             /// Write the string table to the `.debug_str` section.
-            ///
-            /// Returns the offsets at which the strings are written.
             pub fn write<W: Writer>(&self, w: &mut $section<W>) -> Result<()> {
                 for bytes in self.strings.iter() {
                     w.write(bytes)?;

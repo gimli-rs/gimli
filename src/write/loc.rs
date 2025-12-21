@@ -180,8 +180,8 @@ impl LocationListTable {
         w.write_u16(encoding.version)?;
         w.write_u8(encoding.address_size)?;
         w.write_u8(0)?; // segment_selector_size
-        w.write_u32(0)?; // offset_entry_count (when set to zero DW_FORM_rnglistx can't be used, see section 7.28)
-        // FIXME implement DW_FORM_rnglistx writing and implement the offset entry list
+        w.write_u32(0)?; // offset_entry_count (when set to zero DW_FORM_loclistx can't be used, see section 7.29)
+        // FIXME implement DW_FORM_loclistx writing and implement the offset entry list
 
         for loc_list in self.locations.iter() {
             offsets.push(w.offset());
