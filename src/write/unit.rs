@@ -252,11 +252,14 @@ impl Unit {
 
     /// Reserve a `DebuggingInformationEntry` in this unit and return its id.
     ///
-    /// The id should be later passed to [`Self::add_reserved`].
-    /// Do not use the id for any other methods prior to calling this.
+    /// This method is useful when you need an id to construct a [`DebugInfoRef`]
+    /// before the DIE has been added to the unit.
     ///
-    /// This method is useful when you need an id to use for a reference to the
-    /// DIE prior to adding it.
+    /// If the id is used in a reference, it must later be passed to
+    /// [`Self::add_reserved`]. Until then, the ID must not be used with any other
+    /// methods of this unit.
+    ///
+    /// It is valid to reserve an id but never use or add it.
     pub fn reserve(&mut self) -> UnitEntryId {
         let id = UnitEntryId::new(self.base_id, self.reserved);
         self.reserved += 1;
