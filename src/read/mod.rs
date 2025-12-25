@@ -94,6 +94,8 @@
 //!
 //!   * [`DebugLocLists`](./struct.DebugLocLists.html): The `.debug_loclists` section.
 //!
+//!   * [`DebugNames`](./struct.DebugNames.html): The `.debug_names` section.
+//!
 //!   * [`DebugPubNames`](./struct.DebugPubNames.html): The `.debug_pubnames`
 //!     section.
 //!
@@ -193,6 +195,11 @@ mod lookup;
 mod macros;
 #[cfg(feature = "read")]
 pub use self::macros::*;
+
+#[cfg(feature = "read")]
+mod names;
+#[cfg(feature = "read")]
+pub use self::names::*;
 
 mod op;
 pub use self::op::*;
