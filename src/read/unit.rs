@@ -453,6 +453,20 @@ where
         self.unit_offset
     }
 
+    /// Get the offset of this unit as an offset within the `.debug_info` section.
+    ///
+    /// Returns `None` if this unit is not in the `.debug_info` section.
+    pub fn debug_info_offset(&self) -> Option<DebugInfoOffset<Offset>> {
+        self.unit_offset.to_debug_info_offset(self)
+    }
+
+    /// Get the offset of this unit as an offset within the `.debug_types` section.
+    ///
+    /// Returns `None` if this unit is not in the `.debug_types` section.
+    pub fn debug_types_offset(&self) -> Option<DebugTypesOffset<Offset>> {
+        self.unit_offset.to_debug_types_offset(self)
+    }
+
     /// Return the serialized size of the common unit header for the given
     /// DWARF format.
     pub fn size_of_header(&self) -> usize {
