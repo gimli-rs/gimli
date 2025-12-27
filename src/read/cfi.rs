@@ -2912,7 +2912,6 @@ impl<T: ReaderOffset> CfaRule<T> {
 /// has been saved and the rule to find the value for the register in the
 /// previous frame."
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum RegisterRule<T: ReaderOffset> {
     /// > A register that has this rule has no recoverable value in the previous
     /// > frame. (By convention, it is not preserved by a callee.)
