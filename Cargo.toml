@@ -41,7 +41,7 @@ read-all = ["read", "std", "endian-reader"]
 endian-reader = ["read", "dep:stable_deref_trait"]
 fallible-iterator = ["dep:fallible-iterator"]
 write = ["dep:fnv", "dep:indexmap"]
-std = ["fallible-iterator?/std", "stable_deref_trait?/std"]
+std = ["stable_deref_trait?/std"]
 default = ["read-all", "write"]
 
 # Internal feature, only used when building as part of libstd, not part of the
