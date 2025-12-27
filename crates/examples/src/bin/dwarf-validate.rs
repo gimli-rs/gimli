@@ -160,7 +160,7 @@ fn validate_info<W, R>(
         units.push(u);
     }
     let process_unit = |unit: UnitHeader<R>| -> UnitSummary {
-        let unit_offset = unit.offset().to_debug_info_offset(&unit).unwrap();
+        let unit_offset = unit.debug_info_offset().unwrap();
         let mut ret = UnitSummary {
             internally_valid: false,
             offset: unit_offset,

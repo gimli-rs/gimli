@@ -1073,7 +1073,7 @@ fn dump_unit<R: Reader, W: Write>(
     dwo_parent_units: Option<&HashMap<gimli::DwoId, gimli::Unit<R>>>,
     flags: &Flags,
 ) -> Result<()> {
-    let offset = if let Some(o) = header.offset().to_debug_info_offset(&header) {
+    let offset = if let Some(o) = header.debug_info_offset() {
         if let Some(offset) = flags.info_offset {
             if offset == o {
                 // If the offset points to the very start of the unit, we
