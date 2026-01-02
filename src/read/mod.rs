@@ -94,6 +94,8 @@
 //!
 //!   * [`DebugLocLists`](./struct.DebugLocLists.html): The `.debug_loclists` section.
 //!
+//!   * [`DebugNames`](./struct.DebugNames.html): The `.debug_names` section.
+//!
 //!   * [`DebugPubNames`](./struct.DebugPubNames.html): The `.debug_pubnames`
 //!     section.
 //!
@@ -194,6 +196,11 @@ mod macros;
 #[cfg(feature = "read")]
 pub use self::macros::*;
 
+#[cfg(feature = "read")]
+mod names;
+#[cfg(feature = "read")]
+pub use self::names::*;
+
 mod op;
 pub use self::op::*;
 
@@ -253,6 +260,9 @@ pub enum Error {
     /// An abbreviation declared that its tag is zero, but zero is reserved for
     /// null records.
     AbbreviationTagZero,
+    /// An attribute specification declared that its name is zero, but zero is
+    /// reserved for null records.
+    AttributeNameZero,
     /// An attribute specification declared that its form is zero, but zero is
     /// reserved for null records.
     AttributeFormZero,
@@ -414,6 +424,8 @@ pub enum Error {
     InvalidMacroType(constants::DwMacro),
     /// The optional `opcode_operands_table` in `.debug_macro` is currently not supported.
     UnsupportedOpcodeOperandsTable,
+    /// Invalid index in a `.debug_names` attribute value.
+    InvalidNameAttributeIndex(u64),
 }
 
 impl fmt::Display for Error {
@@ -447,6 +459,10 @@ impl Error {
             Error::BadSignedLeb128 => "An error parsing a signed LEB128 value",
             Error::AbbreviationTagZero => {
                 "An abbreviation declared that its tag is zero,
+                 but zero is reserved for null records"
+            }
+            Error::AttributeNameZero => {
+                "An attribute specification declared that its name is zero,
                  but zero is reserved for null records"
             }
             Error::AttributeFormZero => {
@@ -574,6 +590,9 @@ impl Error {
             Error::InvalidMacroType(_) => "Invalid macro type in `.debug_macro`.",
             Error::UnsupportedOpcodeOperandsTable => {
                 "The optional `opcode_operands_table` in `.debug_macro` is currently not supported."
+            }
+            Error::InvalidNameAttributeIndex(_) => {
+                "Invalid index in a `.debug_names` attribute value."
             }
         }
     }
