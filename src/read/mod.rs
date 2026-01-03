@@ -129,10 +129,11 @@
 //!   `DebugLine` represents the `.debug_line` section. There are similar types
 //!   for offsets relative to a compilation unit rather than a section.
 
+use core::error;
 use core::fmt::{self, Debug};
 use core::result;
 #[cfg(feature = "std")]
-use std::{error, io};
+use std::io;
 
 use crate::common::{Register, SectionId};
 use crate::constants;
@@ -579,7 +580,6 @@ impl Error {
     }
 }
 
-#[cfg(feature = "std")]
 impl error::Error for Error {}
 
 #[cfg(feature = "std")]

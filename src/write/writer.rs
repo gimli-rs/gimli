@@ -1,7 +1,7 @@
 use crate::common::{Format, SectionId};
 use crate::constants;
 use crate::endianity::Endianity;
-use crate::leb128;
+use crate::leb128::write::Leb128;
 use crate::write::{Address, Error, Result};
 
 /// A trait for writing the data to a DWARF section.
@@ -293,18 +293,12 @@ pub trait Writer {
 
     /// Write an unsigned LEB128 encoded integer.
     fn write_uleb128(&mut self, val: u64) -> Result<()> {
-        let mut bytes = [0u8; 10];
-        // bytes is long enough so this will never fail.
-        let len = leb128::write::unsigned(&mut { &mut bytes[..] }, val).unwrap();
-        self.write(&bytes[..len])
+        self.write(Leb128::unsigned(val).bytes())
     }
 
-    /// Read an unsigned LEB128 encoded integer.
+    /// Write a signed LEB128 encoded integer.
     fn write_sleb128(&mut self, val: i64) -> Result<()> {
-        let mut bytes = [0u8; 10];
-        // bytes is long enough so this will never fail.
-        let len = leb128::write::signed(&mut { &mut bytes[..] }, val).unwrap();
-        self.write(&bytes[..len])
+        self.write(Leb128::signed(val).bytes())
     }
 
     /// Write an initial length according to the given DWARF format.

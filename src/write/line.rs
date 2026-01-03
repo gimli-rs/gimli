@@ -1,9 +1,9 @@
 use alloc::vec::Vec;
-use std::ops::{Deref, DerefMut};
+use core::ops::{Deref, DerefMut};
 
 use crate::common::{DebugLineOffset, Encoding, Format, LineEncoding, SectionId};
 use crate::constants;
-use crate::leb128;
+use crate::leb128::write::Leb128;
 use crate::write::{
     Address, Error, FnvIndexMap, FnvIndexSet, LineStringId, LineStringTable, Result, Section,
     StringId, StringTable, Writer,
@@ -845,13 +845,11 @@ impl LineInstruction {
                 w.write_address(address, encoding.address_size)?;
             }
             SetDiscriminator(val) => {
-                let mut bytes = [0u8; 10];
-                // bytes is long enough so this will never fail.
-                let len = leb128::write::unsigned(&mut { &mut bytes[..] }, val).unwrap();
+                let val = Leb128::unsigned(val);
                 w.write_u8(0)?;
-                w.write_uleb128(1 + len as u64)?;
+                w.write_uleb128(1 + val.len() as u64)?;
                 w.write_u8(constants::DW_LNE_set_discriminator.0)?;
-                w.write(&bytes[..len])?;
+                w.write(val.bytes())?;
             }
         }
         Ok(())
@@ -1833,7 +1831,7 @@ mod tests {
                     expected_sequences.push(ConvertLineSequence {
                         start: Some(0x12),
                         end: ConvertLineSequenceEnd::Length(length),
-                        rows: std::mem::take(&mut sequence_rows),
+                        rows: core::mem::take(&mut sequence_rows),
                     });
                     program.end_sequence(length);
 
@@ -1851,7 +1849,7 @@ mod tests {
                     expected_sequences.push(ConvertLineSequence {
                         start: None,
                         end: ConvertLineSequenceEnd::Length(0),
-                        rows: std::mem::take(&mut sequence_rows),
+                        rows: core::mem::take(&mut sequence_rows),
                     });
                     program.end_sequence(0);
 
@@ -1876,7 +1874,7 @@ mod tests {
                     expected_sequences.push(ConvertLineSequence {
                         start: Some(address1),
                         end: ConvertLineSequenceEnd::Address(address2),
-                        rows: std::mem::take(&mut sequence_rows),
+                        rows: core::mem::take(&mut sequence_rows),
                     });
                     program.set_address(Address::Constant(address2));
 
@@ -1888,7 +1886,7 @@ mod tests {
                     expected_sequences.push(ConvertLineSequence {
                         start: Some(address2),
                         end: ConvertLineSequenceEnd::Length(length),
-                        rows: std::mem::take(&mut sequence_rows),
+                        rows: core::mem::take(&mut sequence_rows),
                     });
                     program.end_sequence(length);
 
@@ -1910,7 +1908,7 @@ mod tests {
                     expected_sequences.push(ConvertLineSequence {
                         start: None,
                         end: ConvertLineSequenceEnd::Length(length),
-                        rows: std::mem::take(&mut sequence_rows),
+                        rows: core::mem::take(&mut sequence_rows),
                     });
                     program.end_sequence(length);
 

@@ -1,6 +1,6 @@
-use std::ops::DerefMut;
-use std::result;
-use std::vec::Vec;
+use alloc::vec::Vec;
+use core::ops::DerefMut;
+use core::result;
 
 use crate::common::SectionId;
 use crate::write::{

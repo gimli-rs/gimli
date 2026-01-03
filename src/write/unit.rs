@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
-use std::ops::{Deref, DerefMut};
-use std::slice;
+use core::ops::{Deref, DerefMut};
+use core::slice;
 
 use crate::common::{
     DebugAbbrevOffset, DebugInfoOffset, DebugLineOffset, DebugMacinfoOffset, DebugMacroOffset,
@@ -1555,7 +1555,8 @@ pub(crate) mod convert {
     use crate::write::{
         self, ConvertError, ConvertLineProgram, ConvertResult, Dwarf, LocationList, RangeList,
     };
-    use fnv::FnvHashMap;
+
+    type FnvHashMap<K, V> = hashbrown::HashMap<K, V, fnv::FnvBuildHasher>;
 
     #[derive(Debug, Default)]
     struct FilterDependencies {
@@ -3096,7 +3097,7 @@ mod tests {
     use crate::write::{
         Dwarf, DwarfUnit, EndianVec, LineString, Location, LocationList, Range, RangeList,
     };
-    use std::mem;
+    use core::mem;
 
     #[test]
     fn test_unit_table() {
@@ -3218,10 +3219,6 @@ mod tests {
 
         let mut sections = Sections::new(EndianVec::new(LittleEndian));
         dwarf.write(&mut sections).unwrap();
-
-        println!("{:?}", sections.debug_str);
-        println!("{:?}", sections.debug_info);
-        println!("{:?}", sections.debug_abbrev);
 
         let read_dwarf = sections.read(LittleEndian);
         let mut read_units = read_dwarf.units();
@@ -3793,9 +3790,6 @@ mod tests {
         let mut sections = Sections::new(EndianVec::new(LittleEndian));
         dwarf.write(&mut sections).unwrap();
 
-        println!("{:?}", sections.debug_info);
-        println!("{:?}", sections.debug_abbrev);
-
         let read_dwarf = sections.read(LittleEndian);
         let mut read_units = read_dwarf.units();
 
@@ -3982,9 +3976,6 @@ mod tests {
 
         let mut sections = Sections::new(EndianVec::new(LittleEndian));
         dwarf.write(&mut sections).unwrap();
-
-        println!("{:?}", sections.debug_info);
-        println!("{:?}", sections.debug_abbrev);
 
         let read_dwarf = sections.read(LittleEndian);
         let mut read_units = read_dwarf.units();
