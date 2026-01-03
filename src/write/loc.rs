@@ -1,5 +1,5 @@
 use alloc::vec::Vec;
-use std::ops::{Deref, DerefMut};
+use core::ops::{Deref, DerefMut};
 
 use crate::common::{Encoding, LocationListsOffset, SectionId};
 use crate::write::{
@@ -436,7 +436,7 @@ mod tests {
     };
     use crate::read;
     use crate::write::{EndianVec, NoConvertDebugInfoRef};
-    use std::sync::Arc;
+    use alloc::sync::Arc;
 
     #[test]
     fn test_loc_list() {

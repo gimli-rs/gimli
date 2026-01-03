@@ -1,5 +1,5 @@
 use alloc::vec::Vec;
-use std::ops::{Deref, DerefMut};
+use core::ops::{Deref, DerefMut};
 
 use crate::common::{DebugFrameOffset, EhFrameOffset, Encoding, Format, Register, SectionId};
 use crate::constants;
@@ -596,8 +596,9 @@ pub(crate) mod convert {
     use super::*;
     use crate::read::{self, Reader};
     use crate::write::{ConvertError, ConvertResult, NoConvertDebugInfoRef};
-    use fnv::FnvHashMap;
-    use std::collections::hash_map;
+    use hashbrown::hash_map;
+
+    type FnvHashMap<K, V> = hashbrown::HashMap<K, V, fnv::FnvBuildHasher>;
 
     impl FrameTable {
         /// Create a frame table by reading the data in the given section.

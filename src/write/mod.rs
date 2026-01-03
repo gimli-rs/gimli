@@ -59,9 +59,9 @@
 //! #     example().unwrap();
 //! # }
 
-use std::error;
-use std::fmt;
-use std::result;
+use core::error;
+use core::fmt;
+use core::result;
 
 use crate::constants;
 
@@ -297,7 +297,7 @@ struct BaseId(usize);
 #[cfg(debug_assertions)]
 impl Default for BaseId {
     fn default() -> Self {
-        use std::sync::atomic;
+        use core::sync::atomic;
         static BASE_ID: atomic::AtomicUsize = atomic::AtomicUsize::new(0);
         BaseId(BASE_ID.fetch_add(1, atomic::Ordering::Relaxed))
     }

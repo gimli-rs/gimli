@@ -3192,6 +3192,7 @@ mod tests {
     use crate::constants;
     use crate::constants::*;
     use crate::endianity::{Endianity, LittleEndian};
+    #[cfg(feature = "std")]
     use crate::leb128;
     use crate::read::abbrev::tests::AbbrevSectionMethods;
     use crate::read::{
@@ -4403,6 +4404,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn test_parse_attribute_udata() {
         let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
@@ -4418,6 +4420,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn test_parse_attribute_sdata() {
         let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
@@ -4546,6 +4549,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn test_parse_attribute_refudata() {
         let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
@@ -4695,6 +4699,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn test_parse_attribute_strx() {
         let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
@@ -4746,6 +4751,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn test_parse_attribute_addrx() {
         let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
@@ -4797,6 +4803,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn test_parse_attribute_loclistx() {
         let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
@@ -4812,6 +4819,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn test_parse_attribute_rnglistx() {
         let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
@@ -4827,6 +4835,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn test_parse_attribute_indirect() {
         let mut buf = [0; 100];
 
@@ -4844,6 +4853,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn test_parse_attribute_indirect_implicit_const() {
         let encoding = Encoding {
             format: Format::Dwarf32,
