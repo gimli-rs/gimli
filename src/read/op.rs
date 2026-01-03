@@ -2944,10 +2944,10 @@ mod tests {
                 AssemblerEntry::U32(num) => push(&mut result, u64::from(num), 4),
                 AssemblerEntry::U64(num) => push(&mut result, num, 8),
                 AssemblerEntry::Uleb(num) => {
-                    leb128::write::unsigned(&mut result, num).unwrap();
+                    result.extend(leb128::write::Leb128::unsigned(num).bytes());
                 }
                 AssemblerEntry::Sleb(num) => {
-                    leb128::write::signed(&mut result, num as i64).unwrap();
+                    result.extend(leb128::write::Leb128::signed(num as i64).bytes());
                 }
             }
         }

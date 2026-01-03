@@ -1,5 +1,5 @@
 use alloc::vec::Vec;
-use std::ops::{Deref, DerefMut};
+use core::ops::{Deref, DerefMut};
 
 use crate::common::{DebugLineStrOffset, DebugStrOffset, SectionId};
 use crate::write::{BaseId, FnvIndexSet, Result, Section, Writer};

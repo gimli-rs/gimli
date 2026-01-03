@@ -1,5 +1,5 @@
 use alloc::vec::Vec;
-use std::ops::{Deref, DerefMut};
+use core::ops::{Deref, DerefMut};
 
 use crate::common::{Encoding, RangeListsOffset, SectionId};
 use crate::write::{Address, BaseId, Error, FnvIndexSet, Result, Section, Sections, Writer};
@@ -331,7 +331,7 @@ mod tests {
     };
     use crate::read;
     use crate::write::{EndianVec, Range, RangeListTable};
-    use std::sync::Arc;
+    use alloc::sync::Arc;
 
     #[test]
     fn test_range() {

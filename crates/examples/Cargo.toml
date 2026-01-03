@@ -31,7 +31,7 @@ required-features = ["read", "std"]
 
 [[bin]]
 name = "simple_write"
-required-features = ["write"]
+required-features = ["write", "std"]
 
 [[bin]]
 name = "simple_convert"
