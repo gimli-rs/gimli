@@ -21,8 +21,9 @@ rust-version = "1.88"
 
 [dependencies]
 fallible-iterator = { version = "0.3.0", default-features = false, optional = true }
-fnv = { version = "1.0.7", optional = true }
-indexmap = { version = "2.0.0", optional = true }
+fnv = { version = "1.0.7", default-features = false, optional = true }
+hashbrown = { version = "0.16.0", default-features = false, optional = true }
+indexmap = { version = "2.0.0", default-features = false, optional = true }
 stable_deref_trait = { version = "1.1.0", default-features = false, optional = true }
 
 # Internal feature, only used when building as part of libstd, not part of the
@@ -40,7 +41,7 @@ read = ["read-core"]
 read-all = ["read", "std", "endian-reader"]
 endian-reader = ["read", "dep:stable_deref_trait"]
 fallible-iterator = ["dep:fallible-iterator"]
-write = ["dep:fnv", "dep:indexmap"]
+write = ["dep:fnv", "dep:hashbrown", "dep:indexmap"]
 std = ["stable_deref_trait?/std"]
 default = ["read-all", "write"]
 

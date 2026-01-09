@@ -3192,7 +3192,7 @@ mod tests {
     use crate::constants;
     use crate::constants::*;
     use crate::endianity::{Endianity, LittleEndian};
-    use crate::leb128;
+    use crate::leb128::write::Leb128;
     use crate::read::abbrev::tests::AbbrevSectionMethods;
     use crate::read::{
         Abbreviation, AttributeSpecification, DebugAbbrev, EndianSlice, Error, Result,
@@ -4404,12 +4404,10 @@ mod tests {
 
     #[test]
     fn test_parse_attribute_udata() {
-        let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-
-        let bytes_written = {
-            let mut writable = &mut buf[..];
-            leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
-        };
+        let mut buf = Vec::new();
+        buf.extend_from_slice(Leb128::unsigned(4097).bytes());
+        let bytes_written = buf.len();
+        buf.extend_from_slice(&[0; 10]);
 
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_udata;
@@ -4419,12 +4417,10 @@ mod tests {
 
     #[test]
     fn test_parse_attribute_sdata() {
-        let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-
-        let bytes_written = {
-            let mut writable = &mut buf[..];
-            leb128::write::signed(&mut writable, -4097).expect("should write ok")
-        };
+        let mut buf = Vec::new();
+        buf.extend_from_slice(Leb128::signed(-4097).bytes());
+        let bytes_written = buf.len();
+        buf.extend_from_slice(&[0; 10]);
 
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_sdata;
@@ -4547,12 +4543,10 @@ mod tests {
 
     #[test]
     fn test_parse_attribute_refudata() {
-        let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-
-        let bytes_written = {
-            let mut writable = &mut buf[..];
-            leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
-        };
+        let mut buf = Vec::new();
+        buf.extend_from_slice(Leb128::unsigned(4097).bytes());
+        let bytes_written = buf.len();
+        buf.extend_from_slice(&[0; 10]);
 
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_ref_udata;
@@ -4696,12 +4690,10 @@ mod tests {
 
     #[test]
     fn test_parse_attribute_strx() {
-        let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-
-        let bytes_written = {
-            let mut writable = &mut buf[..];
-            leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
-        };
+        let mut buf = Vec::new();
+        buf.extend_from_slice(Leb128::unsigned(4097).bytes());
+        let bytes_written = buf.len();
+        buf.extend_from_slice(&[0; 10]);
 
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_strx;
@@ -4747,12 +4739,10 @@ mod tests {
 
     #[test]
     fn test_parse_attribute_addrx() {
-        let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-
-        let bytes_written = {
-            let mut writable = &mut buf[..];
-            leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
-        };
+        let mut buf = Vec::new();
+        buf.extend_from_slice(Leb128::unsigned(4097).bytes());
+        let bytes_written = buf.len();
+        buf.extend_from_slice(&[0; 10]);
 
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_addrx;
@@ -4798,12 +4788,10 @@ mod tests {
 
     #[test]
     fn test_parse_attribute_loclistx() {
-        let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-
-        let bytes_written = {
-            let mut writable = &mut buf[..];
-            leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
-        };
+        let mut buf = Vec::new();
+        buf.extend_from_slice(Leb128::unsigned(4097).bytes());
+        let bytes_written = buf.len();
+        buf.extend_from_slice(&[0; 10]);
 
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_loclistx;
@@ -4813,12 +4801,10 @@ mod tests {
 
     #[test]
     fn test_parse_attribute_rnglistx() {
-        let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-
-        let bytes_written = {
-            let mut writable = &mut buf[..];
-            leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
-        };
+        let mut buf = Vec::new();
+        buf.extend_from_slice(Leb128::unsigned(4097).bytes());
+        let bytes_written = buf.len();
+        buf.extend_from_slice(&[0; 10]);
 
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_rnglistx;
@@ -4828,14 +4814,11 @@ mod tests {
 
     #[test]
     fn test_parse_attribute_indirect() {
-        let mut buf = [0; 100];
-
-        let bytes_written = {
-            let mut writable = &mut buf[..];
-            leb128::write::unsigned(&mut writable, constants::DW_FORM_udata.0.into())
-                .expect("should write udata")
-                + leb128::write::unsigned(&mut writable, 9_999_999).expect("should write value")
-        };
+        let mut buf = Vec::new();
+        buf.extend_from_slice(Leb128::unsigned(constants::DW_FORM_udata.0.into()).bytes());
+        buf.extend_from_slice(Leb128::unsigned(9_999_999).bytes());
+        let bytes_written = buf.len();
+        buf.extend_from_slice(&[0; 10]);
 
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_indirect;
@@ -4850,10 +4833,9 @@ mod tests {
             version: 4,
             address_size: 4,
         };
-        let mut buf = [0; 100];
-        let mut writable = &mut buf[..];
-        leb128::write::unsigned(&mut writable, constants::DW_FORM_implicit_const.0.into())
-            .expect("should write implicit_const");
+        let mut buf = Vec::new();
+        buf.extend_from_slice(Leb128::unsigned(constants::DW_FORM_implicit_const.0.into()).bytes());
+        buf.extend_from_slice(&[0; 10]);
 
         let input = &mut EndianSlice::new(&buf, LittleEndian);
         let spec =
