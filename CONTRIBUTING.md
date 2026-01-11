@@ -55,24 +55,14 @@ $ cargo test
 
 ### <a id="coverage"></a> Test Coverage
 
-If you have `kcov` installed under linux, then you can generate code coverage
-results using the `coverage` script in the root of the repository, and view them
-at `target/kcov/index.html`. Otherwise you can create a pull request and view
-the coverage results on coveralls.io.
-
-```
-$ ./coverage
-```
+You can install `cargo-llvm-cov` and run `cargo llvm-cov --open` to generate
+and view code coverage information. Otherwise you can create a pull request
+and view the coverage results on coveralls.io.
 
 The ideal we aim to reach is having our unit tests exercise every branch in
 `gimli`. We allow an exception for branches which propagate errors inside a
 `try!(..)` invocation, but we *do* want to exercise the original error paths.
-
 Pull requests adding new code should ensure that this ideal is met.
-
-At the time of writing we have 94% test coverage according to our coveralls.io
-continuous integration. That number should generally stay the same or go up ;)
-This is a bit subjective, because -.001% is just noise and doesn't matter.
 
 ### <a id="test-assembler"></a> Using `test-assembler`
 

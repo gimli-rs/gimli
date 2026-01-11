@@ -155,15 +155,14 @@ jobs:
 
   coverage:
     runs-on: ubuntu-latest
-    container:
-      image: xd009642/tarpaulin
-      options: --security-opt seccomp=unconfined
     steps:
       - uses: actions/checkout@v4
       - name: Install rust stable
         uses: dtolnay/rust-toolchain@stable
-      - name: Run cargo-tarpaulin
-        run: cargo tarpaulin --ignore-tests --out Lcov
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - run: cargo llvm-cov --lcov --output-path lcov.info
       - name: Upload to Coveralls
         uses: coverallsapp/github-action@master
         with:
