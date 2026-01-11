@@ -73,6 +73,9 @@ pub use crate::endianity::*;
 
 pub mod leb128;
 
+mod case_fold;
+pub use crate::case_fold::*;
+
 #[cfg(feature = "read-core")]
 pub mod read;
 // For backwards compat.
