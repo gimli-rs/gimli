@@ -1966,7 +1966,7 @@ where
     // `DW_CFA_restore`. Otherwise, when we are currently evaluating a CIE's
     // initial instructions, `is_initialized` will be `false` and initial rules
     // cannot be read.
-    initial_rule: Option<(Register, RegisterRule<T>)>,
+    initial_rule: Option<Option<(Register, RegisterRule<T>)>>,
 
     is_initialized: bool,
 }
@@ -2063,10 +2063,8 @@ where
     fn save_initial_rules(&mut self) -> Result<()> {
         debug_assert!(!self.is_initialized);
         self.initial_rule = match *self.stack.last().unwrap().registers.rules {
-            // All rules are default (undefined). In this case just synthesize
-            // an undefined rule.
-            [] => Some((Register(0), RegisterRule::Undefined)),
-            [ref rule] => Some(rule.clone()),
+            [] => Some(None),
+            [ref rule] => Some(Some(rule.clone())),
             _ => {
                 let rules = self.stack.last().unwrap().clone();
                 self.stack
@@ -2084,25 +2082,29 @@ where
     }
 
     fn set_start_address(&mut self, start_address: u64) {
-        let row = self.row_mut();
-        row.start_address = start_address;
+        self.row_mut().start_address = start_address;
     }
 
     fn set_register_rule(&mut self, register: Register, rule: RegisterRule<T>) -> Result<()> {
-        let row = self.row_mut();
-        row.registers.set(register, rule)
+        self.row_mut().registers.set(register, rule)
+    }
+
+    fn clear_register_rule(&mut self, register: Register) -> Result<()> {
+        self.row_mut().registers.clear(register)
     }
 
     /// Returns `None` if we have not completed evaluation of a CIE's initial
     /// instructions.
-    fn get_initial_rule(&self, register: Register) -> Option<RegisterRule<T>> {
+    ///
+    /// Returns `Some(None)` for the default rule.
+    fn get_initial_rule(&self, register: Register) -> Option<Option<RegisterRule<T>>> {
         if !self.is_initialized {
             return None;
         }
         Some(match self.initial_rule {
             None => self.stack[0].registers.get(register),
-            Some((r, ref rule)) if r == register => rule.clone(),
-            _ => RegisterRule::Undefined,
+            Some(Some((r, ref rule))) if r == register => Some(rule.clone()),
+            _ => None,
         })
     }
 
@@ -2458,15 +2460,13 @@ where
                 self.ctx.set_register_rule(register, expression)?;
             }
             Restore { register } => {
-                let initial_rule = if let Some(rule) = self.ctx.get_initial_rule(register) {
-                    rule
-                } else {
+                match self.ctx.get_initial_rule(register) {
                     // Can't restore the initial rule when we are
                     // evaluating the initial rules!
-                    return Err(Error::CfiInstructionInInvalidContext);
-                };
-
-                self.ctx.set_register_rule(register, initial_rule)?;
+                    None => return Err(Error::CfiInstructionInInvalidContext),
+                    Some(None) => self.ctx.clear_register_rule(register)?,
+                    Some(Some(rule)) => self.ctx.set_register_rule(register, rule)?,
+                }
             }
 
             // Row push and pop instructions.
@@ -2490,8 +2490,8 @@ where
             NegateRaState => {
                 let register = crate::AArch64::RA_SIGN_STATE;
                 let value = match self.ctx.row().register(register) {
-                    RegisterRule::Undefined => 0,
-                    RegisterRule::Constant(value) => value,
+                    None => 0,
+                    Some(RegisterRule::Constant(value)) => value,
                     _ => return Err(Error::CfiInstructionInInvalidContext),
                 };
                 self.ctx
@@ -2512,11 +2512,6 @@ where
 // a vector indexed by register number (which would lead to filling lots of
 // empty entries), we store them as a vec of (register number, register rule)
 // pairs.
-//
-// Additionally, because every register's default rule is implicitly
-// `RegisterRule::Undefined`, we never store a register's rule in this vec if it
-// is undefined and save a little bit more space and do a little fewer
-// comparisons that way.
 //
 // The maximum number of rules preallocated by libunwind is 97 for AArch64, 128
 // for ARM, and even 188 for MIPS. It is extremely unlikely to encounter this
@@ -2584,33 +2579,28 @@ where
         self.rules.is_empty()
     }
 
-    fn get(&self, register: Register) -> RegisterRule<T> {
+    fn get(&self, register: Register) -> Option<RegisterRule<T>> {
         self.rules
             .iter()
             .find(|rule| rule.0 == register)
-            .map(|r| {
-                debug_assert!(r.1.is_defined());
-                r.1.clone()
-            })
-            .unwrap_or(RegisterRule::Undefined)
+            .map(|rule| rule.1.clone())
+    }
+
+    fn clear(&mut self, register: Register) -> Result<()> {
+        let idx = self
+            .rules
+            .iter()
+            .enumerate()
+            .find(|&(_, r)| r.0 == register)
+            .map(|(i, _)| i);
+        if let Some(idx) = idx {
+            self.rules.swap_remove(idx);
+        }
+        Ok(())
     }
 
     fn set(&mut self, register: Register, rule: RegisterRule<T>) -> Result<()> {
-        if !rule.is_defined() {
-            let idx = self
-                .rules
-                .iter()
-                .enumerate()
-                .find(|&(_, r)| r.0 == register)
-                .map(|(i, _)| i);
-            if let Some(idx) = idx {
-                self.rules.swap_remove(idx);
-            }
-            return Ok(());
-        }
-
         for &mut (reg, ref mut old_rule) in &mut *self.rules {
-            debug_assert!(old_rule.is_defined());
             if reg == register {
                 *old_rule = rule;
                 return Ok(());
@@ -2654,16 +2644,14 @@ where
     S: UnwindContextStorage<T>,
 {
     fn eq(&self, rhs: &Self) -> bool {
-        for &(reg, ref rule) in &*self.rules {
-            debug_assert!(rule.is_defined());
-            if *rule != rhs.get(reg) {
+        for (reg, rule) in &*self.rules {
+            if Some(rule) != rhs.get(*reg).as_ref() {
                 return false;
             }
         }
 
-        for &(reg, ref rhs_rule) in &*rhs.rules {
-            debug_assert!(rhs_rule.is_defined());
-            if *rhs_rule != self.get(reg) {
+        for (reg, rhs_rule) in &*rhs.rules {
+            if Some(rhs_rule) != self.get(*reg).as_ref() {
                 return false;
             }
         }
@@ -2805,6 +2793,9 @@ where
 
     /// Get the register recovery rule for the given register number.
     ///
+    /// Returns `None` if the register has the default rule, the value of which depends
+    /// on the ABI or compilation system.
+    ///
     /// The register number mapping is architecture dependent. For example, in
     /// the x86-64 ABI the register number mapping is defined in Figure 3.36:
     ///
@@ -2847,15 +2838,15 @@ where
     /// >   <tr><td>Vector Mask Registers 0–7</td>        <td>118-125</td> <td>%k0–%k7</td></tr>
     /// >   <tr><td>Reserved</td>                         <td>126-129</td> <td></td></tr>
     /// > </table>
-    pub fn register(&self, register: Register) -> RegisterRule<T> {
+    pub fn register(&self, register: Register) -> Option<RegisterRule<T>> {
         self.registers.get(register)
     }
 
-    /// Iterate over all defined register `(number, rule)` pairs.
+    /// Iterate over all non-default register `(number, rule)` pairs.
     ///
     /// The rules are not iterated in any guaranteed order. Any register that
-    /// does not make an appearance in the iterator implicitly has the rule
-    /// `RegisterRule::Undefined`.
+    /// does not make an appearance in the iterator implicitly has the default
+    /// rule, the value of which depends on the ABI or compilation system.
     ///
     /// ```
     /// # use gimli::{EndianSlice, LittleEndian, UnwindTableRow};
@@ -5892,8 +5883,7 @@ mod tests {
             .rows(section, bases, &mut ctx)
             .expect("Should run initial program OK");
         assert!(table.ctx.is_initialized);
-        let expected_initial_rule = (Register(0), RegisterRule::Undefined);
-        assert_eq!(table.ctx.initial_rule, Some(expected_initial_rule));
+        assert_eq!(table.ctx.initial_rule, Some(None));
 
         {
             let row = table.next_row().expect("Should evaluate first row OK");
@@ -5966,7 +5956,7 @@ mod tests {
             .expect("Should run initial program OK");
         assert!(table.ctx.is_initialized);
         let expected_initial_rule = (Register(3), RegisterRule::Offset(4));
-        assert_eq!(table.ctx.initial_rule, Some(expected_initial_rule));
+        assert_eq!(table.ctx.initial_rule, Some(Some(expected_initial_rule)));
 
         {
             let row = table.next_row().expect("Should evaluate first row OK");
@@ -6073,7 +6063,7 @@ mod tests {
         assert!(ctx.is_initialized);
         assert_eq!(ctx.stack.len(), 1);
         let expected_initial_rule = (Register(3), RegisterRule::Offset(4));
-        assert_eq!(ctx.initial_rule, Some(expected_initial_rule));
+        assert_eq!(ctx.initial_rule, Some(Some(expected_initial_rule)));
     }
 
     #[test]
@@ -7325,13 +7315,13 @@ mod tests {
         assert!(map3 != map4);
         assert!(map4 != map3);
 
-        // One has undefined explicitly set, other implicitly has undefined.
+        // One has undefined explicitly set, other implicitly has default rule.
         let mut map5 = RegisterRuleMap::<usize>::default();
         map5.set(Register(0), RegisterRule::SameValue).unwrap();
         map5.set(Register(0), RegisterRule::Undefined).unwrap();
         let map6 = RegisterRuleMap::<usize>::default();
-        assert_eq!(map5, map6);
-        assert_eq!(map6, map5);
+        assert!(map5 != map6);
+        assert!(map6 != map5);
     }
 
     #[test]
