@@ -565,7 +565,7 @@ pub enum CieOffsetEncoding {
 /// An offset into an `UnwindSection`.
 //
 // Needed to avoid conflicting implementations of `Into<T>`.
-pub trait UnwindOffset<T = usize>: Copy + Debug + Eq + From<T>
+pub trait UnwindOffset<T = usize>: Copy + Eq + From<T>
 where
     T: ReaderOffset,
 {
@@ -632,10 +632,14 @@ pub trait _UnwindSectionPrivate<R: Reader> {
 /// A section holding unwind information: either `.debug_frame` or
 /// `.eh_frame`. See [`DebugFrame`](./struct.DebugFrame.html) and
 /// [`EhFrame`](./struct.EhFrame.html) respectively.
-pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
+pub trait UnwindSection<R, O = <R as Reader>::Offset>: Clone + _UnwindSectionPrivate<R>
+where
+    R: Reader<Offset = O>,
+    O: ReaderOffset,
+{
     /// The offset type associated with this CFI section. Either
     /// `DebugFrameOffset` or `EhFrameOffset`.
-    type Offset: UnwindOffset<R::Offset>;
+    type Offset: UnwindOffset<O>;
 
     /// Iterate over the `CommonInformationEntry`s and `FrameDescriptionEntry`s
     /// in this `.debug_frame` section.
@@ -989,10 +993,11 @@ impl BaseAddresses {
 /// # }
 /// ```
 #[derive(Clone, Debug)]
-pub struct CfiEntriesIter<'bases, Section, R>
+pub struct CfiEntriesIter<'bases, Section, R, Offset = <R as Reader>::Offset>
 where
-    R: Reader,
-    Section: UnwindSection<R>,
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+    Section: UnwindSection<R, Offset>,
 {
     section: Section,
     bases: &'bases BaseAddresses,
@@ -1062,17 +1067,24 @@ where
 
 /// Either a `CommonInformationEntry` (CIE) or a `FrameDescriptionEntry` (FDE).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CieOrFde<'bases, Section, R>
-where
-    R: Reader,
-    Section: UnwindSection<R>,
+pub enum CieOrFde<
+    'bases,
+    Section,
+    R,
+    Offset = <R as Reader>::Offset,
+    SectionOffset = <Section as UnwindSection<R, Offset>>::Offset,
+> where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+    Section: UnwindSection<R, Offset, Offset = SectionOffset>,
+    SectionOffset: UnwindOffset<Offset>,
 {
     /// This CFI entry is a `CommonInformationEntry`.
-    Cie(CommonInformationEntry<R>),
+    Cie(CommonInformationEntry<R, Offset>),
     /// This CFI entry is a `FrameDescriptionEntry`, however fully parsing it
     /// requires parsing its CIE first, so it is left in a partially parsed
     /// state.
-    Fde(PartialFrameDescriptionEntry<'bases, Section, R>),
+    Fde(PartialFrameDescriptionEntry<'bases, Section, R, Offset, SectionOffset>),
 }
 
 fn parse_cfi_entry<'bases, Section, R>(
@@ -1520,15 +1532,22 @@ impl<R: Reader> CommonInformationEntry<R> {
 ///
 /// Fully parsing this FDE requires first parsing its CIE.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PartialFrameDescriptionEntry<'bases, Section, R>
-where
-    R: Reader,
-    Section: UnwindSection<R>,
+pub struct PartialFrameDescriptionEntry<
+    'bases,
+    Section,
+    R,
+    Offset = <R as Reader>::Offset,
+    SectionOffset = <Section as UnwindSection<R, Offset>>::Offset,
+> where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+    Section: UnwindSection<R, Offset, Offset = SectionOffset>,
+    SectionOffset: UnwindOffset<Offset>,
 {
-    offset: R::Offset,
-    length: R::Offset,
+    offset: Offset,
+    length: Offset,
     format: Format,
-    cie_offset: Section::Offset,
+    cie_offset: SectionOffset,
     rest: R,
     section: Section,
     bases: &'bases BaseAddresses,
@@ -1973,7 +1992,7 @@ where
 
 impl<T, S> Debug for UnwindContext<T, S>
 where
-    T: ReaderOffset,
+    T: ReaderOffset + Debug,
     S: UnwindContextStorage<T>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -2537,7 +2556,7 @@ where
 
 impl<T, S> Debug for RegisterRuleMap<T, S>
 where
-    T: ReaderOffset,
+    T: ReaderOffset + Debug,
     S: UnwindContextStorage<T>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -2710,7 +2729,7 @@ where
 
 impl<T, S> Debug for UnwindTableRow<T, S>
 where
-    T: ReaderOffset,
+    T: ReaderOffset + Debug,
     S: UnwindContextStorage<T>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -3743,7 +3762,7 @@ mod tests {
         fn endian<'input, E>(self) -> Endian
         where
             E: Endianity,
-            T: UnwindSection<EndianSlice<'input, E>>,
+            T: UnwindSection<EndianSlice<'input, E>, usize>,
             T::Offset: UnwindOffset<usize>,
         {
             if E::default().is_big_endian() {
@@ -3756,7 +3775,7 @@ mod tests {
         fn section<'input, E>(self, contents: &'input [u8]) -> T
         where
             E: Endianity,
-            T: UnwindSection<EndianSlice<'input, E>> + ReadSection<EndianSlice<'input, E>>,
+            T: UnwindSection<EndianSlice<'input, E>, usize> + ReadSection<EndianSlice<'input, E>>,
             T::Offset: UnwindOffset<usize>,
         {
             EndianSlice::new(contents, E::default()).into()
@@ -3805,7 +3824,7 @@ mod tests {
         ) -> Self
         where
             E: Endianity,
-            T: UnwindSection<EndianSlice<'input, E>>,
+            T: UnwindSection<EndianSlice<'input, E>, usize>,
             T::Offset: UnwindOffset;
         fn fde<'a, 'input, E, T, L>(
             self,
@@ -3815,7 +3834,7 @@ mod tests {
         ) -> Self
         where
             E: Endianity,
-            T: UnwindSection<EndianSlice<'input, E>>,
+            T: UnwindSection<EndianSlice<'input, E>, usize>,
             T::Offset: UnwindOffset,
             L: ToLabelOrNum<'a, u64>;
     }
@@ -3829,7 +3848,7 @@ mod tests {
         ) -> Self
         where
             E: Endianity,
-            T: UnwindSection<EndianSlice<'input, E>>,
+            T: UnwindSection<EndianSlice<'input, E>, usize>,
             T::Offset: UnwindOffset,
         {
             cie.offset = self.size() as _;
@@ -3881,7 +3900,7 @@ mod tests {
         ) -> Self
         where
             E: Endianity,
-            T: UnwindSection<EndianSlice<'input, E>>,
+            T: UnwindSection<EndianSlice<'input, E>, usize>,
             T::Offset: UnwindOffset,
             L: ToLabelOrNum<'a, u64>,
         {

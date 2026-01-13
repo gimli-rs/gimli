@@ -304,11 +304,15 @@ where
 }
 
 #[derive(Debug)]
-enum OperationEvaluationResult<R: Reader> {
+enum OperationEvaluationResult<R, Offset = <R as Reader>::Offset>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
     Piece,
     Incomplete,
-    Complete { location: Location<R> },
-    Waiting(EvaluationWaiting<R>, EvaluationResult<R>),
+    Complete { location: Location<R, Offset> },
+    Waiting(EvaluationWaiting<R>, EvaluationResult<R, Offset>),
 }
 
 /// A single location of a piece of the result of a DWARF expression.
@@ -860,7 +864,11 @@ enum EvaluationWaiting<R: Reader> {
 /// The evaluation is either `Complete`, or it requires more data
 /// to continue, as described by the variant.
 #[derive(Debug, PartialEq)]
-pub enum EvaluationResult<R: Reader> {
+pub enum EvaluationResult<R, Offset = <R as Reader>::Offset>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
     /// The `Evaluation` is complete, and `Evaluation::result()` can be called.
     Complete,
     /// The `Evaluation` needs a value from memory to proceed further.  Once the
@@ -875,7 +883,7 @@ pub enum EvaluationResult<R: Reader> {
         /// If not `None`, a target-specific address space value.
         space: Option<u64>,
         /// The DIE of the base type or 0 to indicate the generic type
-        base_type: UnitOffset<R::Offset>,
+        base_type: UnitOffset<Offset>,
     },
     /// The `Evaluation` needs a value from a register to proceed further.  Once
     /// the caller determines what value to provide it should resume the
@@ -884,7 +892,7 @@ pub enum EvaluationResult<R: Reader> {
         /// The register number.
         register: Register,
         /// The DIE of the base type or 0 to indicate the generic type
-        base_type: UnitOffset<R::Offset>,
+        base_type: UnitOffset<Offset>,
     },
     /// The `Evaluation` needs the frame base address to proceed further.  Once
     /// the caller determines what value to provide it should resume the
@@ -904,7 +912,7 @@ pub enum EvaluationResult<R: Reader> {
     /// proceed further.  Once the caller determines what value to provide it
     /// should resume the `Evaluation` by calling
     /// `Evaluation::resume_with_at_location`.
-    RequiresAtLocation(DieReference<R::Offset>),
+    RequiresAtLocation(DieReference<Offset>),
     /// The `Evaluation` needs the value produced by evaluating a DWARF
     /// expression at the entry point of the current subprogram.  Once the
     /// caller determines what value to provide it should resume the
@@ -914,7 +922,7 @@ pub enum EvaluationResult<R: Reader> {
     /// in the current function's caller.  Once the caller determines what value
     /// to provide it should resume the `Evaluation` by calling
     /// `Evaluation::resume_with_parameter_ref`.
-    RequiresParameterRef(UnitOffset<R::Offset>),
+    RequiresParameterRef(UnitOffset<Offset>),
     /// The `Evaluation` needs an address to be relocated to proceed further.
     /// Once the caller determines what value to provide it should resume the
     /// `Evaluation` by calling `Evaluation::resume_with_relocated_address`.
@@ -926,7 +934,7 @@ pub enum EvaluationResult<R: Reader> {
     RequiresIndexedAddress {
         /// The index of the address in the `.debug_addr` section,
         /// relative to the `DW_AT_addr_base` of the compilation unit.
-        index: DebugAddrIndex<R::Offset>,
+        index: DebugAddrIndex<Offset>,
         /// Whether the address also needs to be relocated.
         relocate: bool,
     },
@@ -934,7 +942,7 @@ pub enum EvaluationResult<R: Reader> {
     /// the give unit offset.  Once the caller determines what value to provide it
     /// should resume the `Evaluation` by calling
     /// `Evaluation::resume_with_base_type`.
-    RequiresBaseType(UnitOffset<R::Offset>),
+    RequiresBaseType(UnitOffset<Offset>),
 }
 
 /// The bytecode for a DWARF expression or location description.
@@ -1067,13 +1075,17 @@ on the heap using [`Vec`]. This is the default storage type parameter for [`Eval
 /// let result = eval.as_result();
 /// println!("{:?}", result);
 /// ```
-pub trait EvaluationStorage<R: Reader> {
+pub trait EvaluationStorage<R: Reader, Offset = <R as Reader>::Offset>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
     /// The storage used for the evaluation stack.
     type Stack: ArrayLike<Item = Value>;
     /// The storage used for the expression stack.
     type ExpressionStack: ArrayLike<Item = (R, R)>;
     /// The storage used for the results.
-    type Result: ArrayLike<Item = Piece<R>>;
+    type Result: ArrayLike<Item = Piece<R, Offset>>;
 }
 
 #[cfg(feature = "read")]
@@ -1129,7 +1141,12 @@ impl<R: Reader> EvaluationStorage<R> for StoreOnHeap {
 /// println!("{:?}", result);
 /// ```
 #[derive(Debug)]
-pub struct Evaluation<R: Reader, S: EvaluationStorage<R> = StoreOnHeap> {
+pub struct Evaluation<R, S = StoreOnHeap, Offset = <R as Reader>::Offset>
+where
+    R: Reader<Offset = Offset>,
+    S: EvaluationStorage<R, Offset>,
+    Offset: ReaderOffset,
+{
     bytecode: R,
     encoding: Encoding,
     object_address: Option<u64>,

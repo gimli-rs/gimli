@@ -197,7 +197,6 @@ struct Flags<'a> {
     dwp: bool,
     dwo_parent: Option<object::File<'a>>,
     sup: Option<object::File<'a>>,
-    raw: bool,
     info_offset: Option<gimli::DebugInfoOffset>,
     match_units: Option<Regex>,
 }
@@ -240,7 +239,6 @@ fn main() {
         "use the specified file as the parent of the dwo or dwp (e.g. for .debug_addr)",
         "library path",
     );
-    opts.optflag("", "raw", "print raw data values");
     opts.optopt(
         "u",
         "match-units",
@@ -319,9 +317,6 @@ fn main() {
     }
     if matches.opt_present("dwp") {
         flags.dwp = true;
-    }
-    if matches.opt_present("raw") {
-        flags.raw = true;
     }
     if all {
         // .eh_frame is excluded even when printing all information.
@@ -1241,25 +1236,19 @@ fn dump_entries<R: Reader, W: Write>(
             } else {
                 write!(w, "{:27} ", attr.name())?;
             }
-            if flags.raw {
-                writeln!(w, "{:?}", attr.raw_value())?;
-            } else {
-                match dump_attr_value(w, &attr, unit) {
-                    Ok(_) => (),
-                    Err(err) => {
-                        writeln_error(w, unit.dwarf, err, "Failed to dump attribute value")?
-                    }
-                };
-                // dump_attr_value only prints the offset for the macro info attribute.
-                // The content is too long to print inline, so store the offset to print later.
-                if attr.name() == gimli::DW_AT_macro_info {
-                    if let gimli::AttributeValue::DebugMacinfoRef(offset) = attr.value() {
-                        deferred_macinfo.push(offset);
-                    }
-                } else if attr.name() == gimli::DW_AT_macros {
-                    if let gimli::AttributeValue::DebugMacroRef(offset) = attr.value() {
-                        deferred_macros.push(offset);
-                    }
+            match dump_attr_value(w, &attr, unit) {
+                Ok(_) => (),
+                Err(err) => writeln_error(w, unit.dwarf, err, "Failed to dump attribute value")?,
+            };
+            // dump_attr_value only prints the offset for the macro info attribute.
+            // The content is too long to print inline, so store the offset to print later.
+            if attr.name() == gimli::DW_AT_macro_info {
+                if let gimli::AttributeValue::DebugMacinfoRef(offset) = attr.value() {
+                    deferred_macinfo.push(offset);
+                }
+            } else if attr.name() == gimli::DW_AT_macros {
+                if let gimli::AttributeValue::DebugMacroRef(offset) = attr.value() {
+                    deferred_macros.push(offset);
                 }
             }
         }
@@ -1299,17 +1288,17 @@ fn dump_attr_value<R: Reader, W: Write>(
         gimli::AttributeValue::Data1(_)
         | gimli::AttributeValue::Data2(_)
         | gimli::AttributeValue::Data4(_)
-        | gimli::AttributeValue::Data8(_)
-        | gimli::AttributeValue::Data16(_) => {
-            if let (Some(udata), Some(sdata)) = (attr.udata_value(), attr.sdata_value()) {
-                if sdata >= 0 {
-                    writeln!(w, "{}", udata)?;
-                } else {
-                    writeln!(w, "{} ({})", udata, sdata)?;
-                }
+        | gimli::AttributeValue::Data8(_) => {
+            let udata = attr.udata_value().unwrap();
+            let sdata = attr.sdata_value().unwrap();
+            if sdata >= 0 {
+                writeln!(w, "{}", udata)?;
             } else {
-                writeln!(w, "{:?}", value)?;
+                writeln!(w, "{} ({})", udata, sdata)?;
             }
+        }
+        gimli::AttributeValue::Data16(data) => {
+            writeln!(w, "0x{:x}", data)?;
         }
         gimli::AttributeValue::Sdata(data) => {
             match attr.name() {
@@ -2158,7 +2147,7 @@ fn dump_line_program<R: Reader, W: Write>(w: &mut W, unit: gimli::UnitRef<R>) ->
                         write!(w, "Unknown {} with operand {}", opcode, arg)
                     }
                     LineInstruction::UnknownStandardN(opcode, ref args) => {
-                        write!(w, "Unknown {} with operands {:?}", opcode, args)
+                        write!(w, "Unknown {} with operands {:?}", opcode, args.to_slice()?)
                     }
                     LineInstruction::EndSequence => write!(w, "{}", constants::DW_LNE_end_sequence),
                     LineInstruction::SetAddress(address) => {

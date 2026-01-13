@@ -1121,10 +1121,14 @@ where
 /// An attribute in a `DebuggingInformationEntry`, consisting of a name and
 /// associated value.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct Attribute<R: Reader> {
+pub struct Attribute<R, Offset = <R as Reader>::Offset>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
     name: constants::DwAt,
     form: constants::DwForm,
-    value: AttributeValue<R>,
+    value: AttributeValue<R, Offset>,
 }
 
 impl<R: Reader> Attribute<R> {
@@ -2330,14 +2334,15 @@ pub(crate) fn skip_attributes<R: Reader>(
 /// # }
 /// ```
 #[derive(Clone, Debug)]
-pub struct EntriesRaw<'abbrev, R>
+pub struct EntriesRaw<'abbrev, R, Offset = <R as Reader>::Offset>
 where
-    R: Reader,
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
 {
     input: R,
     encoding: Encoding,
     abbreviations: &'abbrev Abbreviations,
-    end_offset: UnitOffset<R::Offset>,
+    end_offset: UnitOffset<Offset>,
     depth: isize,
 }
 
@@ -2506,12 +2511,13 @@ impl<'abbrev, R: Reader> EntriesRaw<'abbrev, R> {
 /// to read entries at a specific depth, such as moving to the first child prior to using
 /// [`Self::next_sibling`].
 #[derive(Clone, Debug)]
-pub struct EntriesCursor<'abbrev, R>
+pub struct EntriesCursor<'abbrev, R, Offset = <R as Reader>::Offset>
 where
-    R: Reader,
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
 {
-    input: EntriesRaw<'abbrev, R>,
-    cached_current: DebuggingInformationEntry<R>,
+    input: EntriesRaw<'abbrev, R, Offset>,
+    cached_current: DebuggingInformationEntry<R, Offset>,
 }
 
 impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
@@ -2874,12 +2880,13 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
 /// }
 /// ```
 #[derive(Clone, Debug)]
-pub struct EntriesTree<'abbrev, R>
+pub struct EntriesTree<'abbrev, R, Offset = <R as Reader>::Offset>
 where
-    R: Reader,
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
 {
     root: R,
-    input: EntriesRaw<'abbrev, R>,
+    input: EntriesRaw<'abbrev, R, Offset>,
     entry: DebuggingInformationEntry<R>,
 }
 
@@ -2970,7 +2977,11 @@ impl<'abbrev, R: Reader> EntriesTree<'abbrev, R> {
 /// The root node of a tree can be obtained
 /// via [`EntriesTree::root`](./struct.EntriesTree.html#method.root).
 #[derive(Debug)]
-pub struct EntriesTreeNode<'abbrev, 'tree, R: Reader> {
+pub struct EntriesTreeNode<'abbrev, 'tree, R, Offset = <R as Reader>::Offset>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
     tree: &'tree mut EntriesTree<'abbrev, R>,
     depth: isize,
 }
@@ -3005,8 +3016,12 @@ impl<'abbrev, 'tree, R: Reader> EntriesTreeNode<'abbrev, 'tree, R> {
 /// The items returned by this iterator are also `EntriesTreeNode`s,
 /// which allow recursive traversal of grandchildren, etc.
 #[derive(Debug)]
-pub struct EntriesTreeIter<'abbrev, 'tree, R: Reader> {
-    tree: &'tree mut EntriesTree<'abbrev, R>,
+pub struct EntriesTreeIter<'abbrev, 'tree, R, Offset = <R as Reader>::Offset>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
+    tree: &'tree mut EntriesTree<'abbrev, R, Offset>,
     depth: isize,
     empty: bool,
 }

@@ -472,11 +472,11 @@ impl<R: Reader> Iterator for RawRngListIter<R> {
 /// entry types.  Thus, it only returns range entries that are valid
 /// and already adjusted for the base address.
 #[derive(Debug)]
-pub struct RngListIter<R: Reader> {
+pub struct RngListIter<R: Reader, Offset = <R as Reader>::Offset> {
     raw: RawRngListIter<R>,
     base_address: u64,
     debug_addr: DebugAddr<R>,
-    debug_addr_base: DebugAddrBase<R::Offset>,
+    debug_addr_base: DebugAddrBase<Offset>,
 }
 
 impl<R: Reader> RngListIter<R> {

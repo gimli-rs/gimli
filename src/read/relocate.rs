@@ -49,7 +49,7 @@ where
 
 impl<R, T> fmt::Debug for RelocateReader<R, T>
 where
-    R: Reader,
+    R: Reader + fmt::Debug,
     T: Relocate<R::Offset>,
 {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> core::result::Result<(), fmt::Error> {

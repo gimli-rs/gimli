@@ -9,7 +9,10 @@
 use gimli::write::Writer;
 use object::{Object, ObjectSection};
 use std::io::Write;
-use std::{borrow, env, error, fs, io};
+use std::{borrow, env, error, fmt, fs, io};
+
+trait Reader: gimli::Reader<Offset = usize> + fmt::Debug {}
+impl<T: gimli::Reader<Offset = usize> + fmt::Debug> Reader for T {}
 
 fn main() -> Result<(), Box<dyn error::Error>> {
     let mut args = env::args_os();
@@ -126,7 +129,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     Ok(())
 }
 
-fn convert_dwarf<R: gimli::Reader<Offset = usize>, W: gimli::write::Writer>(
+fn convert_dwarf<R: Reader, W: gimli::write::Writer>(
     read_dwarf: &gimli::Dwarf<R>,
     dwp: Option<&gimli::DwarfPackage<R>>,
     write_sections: &mut gimli::write::Sections<W>,
@@ -169,7 +172,7 @@ fn convert_dwarf<R: gimli::Reader<Offset = usize>, W: gimli::write::Writer>(
     Ok(())
 }
 
-fn convert_unit<'a, R: gimli::Reader<Offset = usize>, W: gimli::write::Writer>(
+fn convert_unit<'a, R: Reader, W: gimli::write::Writer>(
     unit: &mut gimli::write::ConvertUnit<'a, R>,
     root_entry: gimli::write::ConvertUnitEntry<'a, R>,
     skeleton_root_entry: Option<&gimli::write::ConvertUnitEntry<'_, R>>,
@@ -210,7 +213,7 @@ fn convert_unit<'a, R: gimli::Reader<Offset = usize>, W: gimli::write::Writer>(
     Ok(())
 }
 
-fn convert_attributes<R: gimli::Reader<Offset = usize>>(
+fn convert_attributes<R: Reader>(
     unit: &mut gimli::write::ConvertUnit<'_, R>,
     id: gimli::write::UnitEntryId,
     entry: &gimli::write::ConvertUnitEntry<'_, R>,
@@ -234,7 +237,7 @@ fn convert_attributes<R: gimli::Reader<Offset = usize>>(
     }
 }
 
-fn filter_dwarf<R: gimli::Reader<Offset = usize>>(
+fn filter_dwarf<R: Reader>(
     dwarf: &gimli::read::Dwarf<R>,
 ) -> gimli::write::ConvertResult<gimli::write::FilterUnitSection<'_, R>> {
     // Walk the DIE tree. This will automatically record relationships between DIEs based
@@ -256,7 +259,7 @@ fn filter_dwarf<R: gimli::Reader<Offset = usize>>(
 }
 
 /// Use heuristics to determine if an entry is dead code.
-fn need_entry<R: gimli::Reader<Offset = usize>>(
+fn need_entry<R: Reader>(
     entry: &gimli::write::FilterUnitEntry<'_, R>,
 ) -> gimli::write::ConvertResult<bool> {
     match entry.parent_tag {
@@ -371,7 +374,7 @@ fn need_entry<R: gimli::Reader<Offset = usize>>(
     Ok(false)
 }
 
-fn is_tombstone_address<R: gimli::Reader<Offset = usize>>(
+fn is_tombstone_address<R: Reader>(
     entry: &gimli::write::FilterUnitEntry<'_, R>,
     address: u64,
 ) -> bool {

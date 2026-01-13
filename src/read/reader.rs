@@ -1,7 +1,6 @@
 #[cfg(feature = "read")]
 use alloc::borrow::Cow;
 use core::convert::TryInto;
-use core::fmt::Debug;
 use core::hash::Hash;
 use core::ops::{Add, AddAssign, Sub};
 
@@ -22,7 +21,7 @@ pub struct ReaderOffsetId(pub u64);
 ///
 /// This allows consumers to choose a size that is appropriate for their address space.
 pub trait ReaderOffset:
-    Debug + Copy + Eq + Ord + Hash + Add<Output = Self> + AddAssign + Sub<Output = Self>
+    Copy + Eq + Ord + Hash + Add<Output = Self> + AddAssign + Sub<Output = Self>
 {
     /// Convert a u8 to an offset.
     fn from_u8(offset: u8) -> Self;
@@ -282,7 +281,7 @@ pub(crate) mod seal_if_no_alloc {
 /// | [`EndianRcSlice`](./struct.EndianRcSlice.html)    | Reference counted | No          | Shared ownership via reference counting, which alleviates the borrow restrictions of `EndianSlice` but imposes reference counting increments and decrements. Cannot be sent across threads, because the reference count is not atomic. |
 /// | [`EndianArcSlice`](./struct.EndianArcSlice.html)  | Reference counted | Yes         | The same as `EndianRcSlice`, but uses atomic reference counting, and therefore reference counting operations are slower but `EndianArcSlice`s may be sent across threads. |
 /// | [`EndianReader<T>`](./struct.EndianReader.html)   | Same as `T`       | Same as `T` | Escape hatch for easily defining your own type of `Reader`. |
-pub trait Reader: Debug + Clone {
+pub trait Reader: Clone {
     /// The endianity of bytes that are read.
     type Endian: Endianity;
 

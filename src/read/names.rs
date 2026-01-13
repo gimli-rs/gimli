@@ -553,7 +553,7 @@ impl<R: Reader> NameIndex<R> {
     /// Parse the entry at the given entry pool offset.
     ///
     /// This is useful for reading the entry referenced by a `DW_IDX_parent` attribute.
-    pub fn name_entry(&self, offset: NameEntryOffset<R::Offset>) -> Result<NameEntry<R>> {
+    pub fn name_entry(&self, offset: NameEntryOffset<R::Offset>) -> Result<NameEntry<R::Offset>> {
         let mut entries = self.entry_pool.clone();
         entries.skip(offset.0)?;
         NameEntry::parse(&mut entries, offset, &self.abbreviations)?.ok_or(Error::UnexpectedNull)
@@ -743,7 +743,7 @@ impl<'a, R: Reader> NameEntryIter<'a, R> {
     }
 
     /// Advance the iterator and return the next name entry.
-    pub fn next(&mut self) -> Result<Option<NameEntry<R>>> {
+    pub fn next(&mut self) -> Result<Option<NameEntry<R::Offset>>> {
         if self.entries.is_empty() {
             return Ok(None);
         }
@@ -767,7 +767,7 @@ impl<'a, R: Reader> NameEntryIter<'a, R> {
 
 #[cfg(feature = "fallible-iterator")]
 impl<'a, R: Reader> fallible_iterator::FallibleIterator for NameEntryIter<'a, R> {
-    type Item = NameEntry<R>;
+    type Item = NameEntry<R::Offset>;
     type Error = Error;
 
     fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
@@ -776,7 +776,7 @@ impl<'a, R: Reader> fallible_iterator::FallibleIterator for NameEntryIter<'a, R>
 }
 
 impl<'a, R: Reader> Iterator for NameEntryIter<'a, R> {
-    type Item = Result<NameEntry<R>>;
+    type Item = Result<NameEntry<R::Offset>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         NameEntryIter::next(self).transpose()
@@ -789,9 +789,9 @@ pub struct NameEntryOffset<T = usize>(pub T);
 
 /// A parsed entry from the `.debug_names` section.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NameEntry<R: Reader> {
+pub struct NameEntry<Offset: ReaderOffset> {
     /// The offset of the entry in the entries pool.
-    pub offset: NameEntryOffset<R::Offset>,
+    pub offset: NameEntryOffset<Offset>,
 
     /// The abbreviation code for this entry.
     pub abbrev_code: u64,
@@ -800,10 +800,10 @@ pub struct NameEntry<R: Reader> {
     pub tag: constants::DwTag,
 
     /// The attributes for this entry.
-    pub attrs: Vec<NameAttribute<R>>,
+    pub attrs: Vec<NameAttribute<Offset>>,
 }
 
-impl<R: Reader> NameEntry<R> {
+impl<Offset: ReaderOffset> NameEntry<Offset> {
     /// Get the value of the `DW_IDX_compile_unit` attribute, if any.
     ///
     /// If neither `DW_IDX_compile_unit` nor `DW_IDX_type_unit` exist then you should use
@@ -812,7 +812,10 @@ impl<R: Reader> NameEntry<R> {
     /// If both `DW_IDX_compile_unit` and `DW_IDX_type_unit` exist then this value is for
     /// a skeleton CU that may be used to locate a split DWARF object file containing
     /// the type unit.
-    pub fn compile_unit(&self, names: &NameIndex<R>) -> Result<Option<DebugInfoOffset<R::Offset>>> {
+    pub fn compile_unit<R: Reader<Offset = Offset>>(
+        &self,
+        names: &NameIndex<R>,
+    ) -> Result<Option<DebugInfoOffset<Offset>>> {
         for attr in &self.attrs {
             if attr.name == constants::DW_IDX_compile_unit {
                 return attr.compile_unit(names).map(Some);
@@ -822,7 +825,10 @@ impl<R: Reader> NameEntry<R> {
     }
 
     /// Get the value of the `DW_IDX_type_unit` attribute, if any.
-    pub fn type_unit(&self, names: &NameIndex<R>) -> Result<Option<NameTypeUnit<R::Offset>>> {
+    pub fn type_unit<R: Reader<Offset = Offset>>(
+        &self,
+        names: &NameIndex<R>,
+    ) -> Result<Option<NameTypeUnit<Offset>>> {
         for attr in &self.attrs {
             if attr.name == constants::DW_IDX_type_unit {
                 return attr.type_unit(names).map(Some);
@@ -834,7 +840,7 @@ impl<R: Reader> NameEntry<R> {
     /// Get the value of the `DW_IDX_die_offset` attribute, if any.
     ///
     /// This is the offset of the DIE within the compile unit or type unit.
-    pub fn die_offset(&self) -> Result<Option<UnitOffset<R::Offset>>> {
+    pub fn die_offset(&self) -> Result<Option<UnitOffset<Offset>>> {
         for attr in &self.attrs {
             if attr.name == constants::DW_IDX_die_offset {
                 return attr.die_offset().map(Some);
@@ -849,7 +855,7 @@ impl<R: Reader> NameEntry<R> {
     /// Returns `Ok(Some(None))` if the DIE parent is not indexed.
     /// Returns `Ok(None)` if it is unknown whether the DIE parent is indexed
     /// because the producer did not generate a `DW_IDX_parent` attribute.
-    pub fn parent(&self) -> Result<Option<Option<NameEntryOffset<R::Offset>>>> {
+    pub fn parent(&self) -> Result<Option<Option<NameEntryOffset<Offset>>>> {
         for attr in &self.attrs {
             if attr.name == constants::DW_IDX_parent {
                 return attr.parent().map(Some);
@@ -869,11 +875,11 @@ impl<R: Reader> NameEntry<R> {
     }
 
     /// Parse a single entry from the entry pool.
-    fn parse(
+    fn parse<R: Reader<Offset = Offset>>(
         entry_reader: &mut R,
-        offset: NameEntryOffset<R::Offset>,
+        offset: NameEntryOffset<Offset>,
         abbreviations: &NameAbbreviations,
-    ) -> Result<Option<NameEntry<R>>> {
+    ) -> Result<Option<NameEntry<Offset>>> {
         let abbrev_code = entry_reader.read_uleb128()?;
         if abbrev_code == 0 {
             return Ok(None);
@@ -902,13 +908,13 @@ impl<R: Reader> NameEntry<R> {
 
 /// A parsed attribute for a [`NameEntry`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct NameAttribute<R: Reader> {
+pub struct NameAttribute<Offset: ReaderOffset> {
     name: constants::DwIdx,
     form: constants::DwForm,
-    value: NameAttributeValue<R>,
+    value: NameAttributeValue<Offset>,
 }
 
-impl<R: Reader> NameAttribute<R> {
+impl<Offset: ReaderOffset> NameAttribute<Offset> {
     /// Get the attribute name.
     pub fn name(&self) -> constants::DwIdx {
         self.name
@@ -922,12 +928,15 @@ impl<R: Reader> NameAttribute<R> {
     /// Get the attribute value.
     ///
     /// Interpretation of this value depends on the name and form.
-    pub fn value(&self) -> &NameAttributeValue<R> {
+    pub fn value(&self) -> &NameAttributeValue<Offset> {
         &self.value
     }
 
     /// Get the value of a `DW_IDX_compile_unit` attribute.
-    pub fn compile_unit(&self, names: &NameIndex<R>) -> Result<DebugInfoOffset<R::Offset>> {
+    pub fn compile_unit<R: Reader<Offset = Offset>>(
+        &self,
+        names: &NameIndex<R>,
+    ) -> Result<DebugInfoOffset<Offset>> {
         match self.value {
             NameAttributeValue::Unsigned(val) => {
                 let index =
@@ -939,7 +948,10 @@ impl<R: Reader> NameAttribute<R> {
     }
 
     /// Get the value of a `DW_IDX_type_unit` attribute.
-    pub fn type_unit(&self, names: &NameIndex<R>) -> Result<NameTypeUnit<R::Offset>> {
+    pub fn type_unit<R: Reader<Offset = Offset>>(
+        &self,
+        names: &NameIndex<R>,
+    ) -> Result<NameTypeUnit<Offset>> {
         match self.value {
             NameAttributeValue::Unsigned(val) => {
                 let index =
@@ -951,7 +963,7 @@ impl<R: Reader> NameAttribute<R> {
     }
 
     /// Get the value of a `DW_IDX_die_offset` attribute.
-    pub fn die_offset(&self) -> Result<UnitOffset<R::Offset>> {
+    pub fn die_offset(&self) -> Result<UnitOffset<Offset>> {
         match self.value {
             NameAttributeValue::Offset(val) => Ok(UnitOffset(val)),
             _ => Err(Error::UnsupportedAttributeForm),
@@ -962,7 +974,7 @@ impl<R: Reader> NameAttribute<R> {
     ///
     /// Returns `Ok(Some(offset))` if the DIE parent is indexed.
     /// Returns `Ok(None)` if the DIE parent is not indexed.
-    pub fn parent(&self) -> Result<Option<NameEntryOffset<R::Offset>>> {
+    pub fn parent(&self) -> Result<Option<NameEntryOffset<Offset>>> {
         match self.value {
             NameAttributeValue::Offset(val) => Ok(Some(NameEntryOffset(val))),
             NameAttributeValue::Flag(true) => Ok(None),
@@ -981,7 +993,7 @@ impl<R: Reader> NameAttribute<R> {
 
 /// A parsed attribute value for a [`NameEntry`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NameAttributeValue<R: Reader> {
+pub enum NameAttributeValue<Offset: ReaderOffset> {
     /// An unsigned integer.
     ///
     /// This can be from the following forms:
@@ -991,7 +1003,7 @@ pub enum NameAttributeValue<R: Reader> {
     ///
     /// This can be from the following forms:
     /// `DW_FORM_ref1`, `DW_FORM_ref2`, `DW_FORM_ref4`, `DW_FORM_ref8`, `DW_FORM_ref_udata`
-    Offset(R::Offset),
+    Offset(Offset),
     /// A boolean flag.
     ///
     /// This can be from the following forms:
@@ -1006,7 +1018,7 @@ pub enum NameAttributeValue<R: Reader> {
 fn read_debug_names_form_value<R: Reader>(
     input: &mut R,
     form: constants::DwForm,
-) -> Result<NameAttributeValue<R>> {
+) -> Result<NameAttributeValue<R::Offset>> {
     Ok(match form {
         constants::DW_FORM_flag => {
             let present = input.read_u8()?;

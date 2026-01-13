@@ -1425,7 +1425,7 @@ pub struct UnitRef<'a, R: Reader> {
     pub dwarf: &'a Dwarf<R>,
 
     /// The `Unit` being referenced.
-    pub unit: &'a Unit<R>,
+    pub unit: &'a Unit<R, R::Offset>,
 }
 
 impl<'a, R: Reader> Clone for UnitRef<'a, R> {
@@ -1610,12 +1610,12 @@ impl<'a, R: Reader> UnitRef<'a, R> {
 ///
 /// Returned by `Dwarf::die_ranges` and `Dwarf::unit_ranges`.
 #[derive(Debug)]
-pub struct RangeIter<R: Reader>(RangeIterInner<R>);
+pub struct RangeIter<R: Reader, Offset = <R as Reader>::Offset>(RangeIterInner<R, Offset>);
 
 #[derive(Debug)]
-enum RangeIterInner<R: Reader> {
+enum RangeIterInner<R: Reader, Offset = <R as Reader>::Offset> {
     Single(Option<Range>),
-    List(RngListIter<R>),
+    List(RngListIter<R, Offset>),
 }
 
 impl<R: Reader> Default for RangeIter<R> {

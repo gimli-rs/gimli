@@ -118,11 +118,7 @@ pub type EndianArcSlice<Endian> = EndianReader<Endian, Arc<[u8]>>;
 /// # fn test(_: &MmapFileReader<gimli::NativeEndian>) { }
 /// ```
 #[derive(Debug, Clone, Copy)]
-pub struct EndianReader<Endian, T>
-where
-    Endian: Endianity,
-    T: CloneStableDeref<Target = [u8]> + Debug,
-{
+pub struct EndianReader<Endian, T> {
     range: SubRange<T>,
     endian: Endian,
 }
@@ -130,8 +126,8 @@ where
 impl<Endian, T1, T2> PartialEq<EndianReader<Endian, T2>> for EndianReader<Endian, T1>
 where
     Endian: Endianity,
-    T1: CloneStableDeref<Target = [u8]> + Debug,
-    T2: CloneStableDeref<Target = [u8]> + Debug,
+    T1: CloneStableDeref<Target = [u8]>,
+    T2: CloneStableDeref<Target = [u8]>,
 {
     fn eq(&self, rhs: &EndianReader<Endian, T2>) -> bool {
         self.bytes() == rhs.bytes()
@@ -141,14 +137,14 @@ where
 impl<Endian, T> Eq for EndianReader<Endian, T>
 where
     Endian: Endianity,
-    T: CloneStableDeref<Target = [u8]> + Debug,
+    T: CloneStableDeref<Target = [u8]>,
 {
 }
 
 impl<Endian, T> Hash for EndianReader<Endian, T>
 where
     Endian: Endianity,
-    T: CloneStableDeref<Target = [u8]> + Debug,
+    T: CloneStableDeref<Target = [u8]>,
 {
     fn hash<H: Hasher>(&self, state: &mut H) {
         // This must match the `PartialEq` implementation.
@@ -169,22 +165,19 @@ where
 // `CloneStableDeref` ensures these bytes never move.  The `ptr` and `len`
 // members point inside `bytes`, and are updated during read operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct SubRange<T>
-where
-    T: CloneStableDeref<Target = [u8]> + Debug,
-{
+struct SubRange<T> {
     bytes: T,
     ptr: *const u8,
     len: usize,
 }
 
-unsafe impl<T> Send for SubRange<T> where T: CloneStableDeref<Target = [u8]> + Debug + Send {}
+unsafe impl<T: Send> Send for SubRange<T> {}
 
-unsafe impl<T> Sync for SubRange<T> where T: CloneStableDeref<Target = [u8]> + Debug + Sync {}
+unsafe impl<T: Sync> Sync for SubRange<T> {}
 
 impl<T> SubRange<T>
 where
-    T: CloneStableDeref<Target = [u8]> + Debug,
+    T: CloneStableDeref<Target = [u8]>,
 {
     #[inline]
     fn new(bytes: T) -> Self {
@@ -234,7 +227,7 @@ where
 impl<Endian, T> EndianReader<Endian, T>
 where
     Endian: Endianity,
-    T: CloneStableDeref<Target = [u8]> + Debug,
+    T: CloneStableDeref<Target = [u8]>,
 {
     /// Construct a new `EndianReader` with the given bytes.
     #[inline]
@@ -261,7 +254,7 @@ where
 impl<Endian, T> EndianReader<Endian, T>
 where
     Endian: Endianity,
-    T: CloneStableDeref<Target = [u8]> + Debug,
+    T: CloneStableDeref<Target = [u8]>,
 {
     /// Take the given `start..end` range of the underlying buffer and return a
     /// new `EndianReader`.
@@ -340,7 +333,7 @@ where
 impl<Endian, T> Index<usize> for EndianReader<Endian, T>
 where
     Endian: Endianity,
-    T: CloneStableDeref<Target = [u8]> + Debug,
+    T: CloneStableDeref<Target = [u8]>,
 {
     type Output = u8;
     fn index(&self, idx: usize) -> &Self::Output {
@@ -351,7 +344,7 @@ where
 impl<Endian, T> Index<RangeFrom<usize>> for EndianReader<Endian, T>
 where
     Endian: Endianity,
-    T: CloneStableDeref<Target = [u8]> + Debug,
+    T: CloneStableDeref<Target = [u8]>,
 {
     type Output = [u8];
     fn index(&self, idx: RangeFrom<usize>) -> &Self::Output {
@@ -362,7 +355,7 @@ where
 impl<Endian, T> Deref for EndianReader<Endian, T>
 where
     Endian: Endianity,
-    T: CloneStableDeref<Target = [u8]> + Debug,
+    T: CloneStableDeref<Target = [u8]>,
 {
     type Target = [u8];
     fn deref(&self) -> &Self::Target {
@@ -495,7 +488,7 @@ mod tests {
     use crate::endianity::NativeEndian;
     use crate::read::Reader;
 
-    fn native_reader<T: CloneStableDeref<Target = [u8]> + Debug>(
+    fn native_reader<T: CloneStableDeref<Target = [u8]>>(
         bytes: T,
     ) -> EndianReader<NativeEndian, T> {
         EndianReader::new(bytes, NativeEndian)

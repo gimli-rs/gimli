@@ -1,13 +1,17 @@
 use crate::common::{DebugInfoOffset, SectionId};
 use crate::endianity::Endianity;
 use crate::read::lookup::{DebugLookup, LookupEntryIter, PubStuffEntry, PubStuffParser};
-use crate::read::{EndianSlice, Reader, Result, Section, UnitOffset};
+use crate::read::{EndianSlice, Reader, ReaderOffset, Result, Section, UnitOffset};
 
 /// A single parsed pubtype.
 #[derive(Debug, Clone)]
-pub struct PubTypesEntry<R: Reader> {
-    unit_header_offset: DebugInfoOffset<R::Offset>,
-    die_offset: UnitOffset<R::Offset>,
+pub struct PubTypesEntry<R, Offset = <R as Reader>::Offset>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
+    unit_header_offset: DebugInfoOffset<Offset>,
+    die_offset: UnitOffset<Offset>,
     name: R,
 }
 
@@ -47,7 +51,12 @@ impl<R: Reader> PubStuffEntry<R> for PubTypesEntry<R> {
 /// The `DebugPubTypes` struct represents the DWARF public types information
 /// found in the `.debug_info` section.
 #[derive(Debug, Clone)]
-pub struct DebugPubTypes<R: Reader>(DebugLookup<R, PubStuffParser<R, PubTypesEntry<R>>>);
+pub struct DebugPubTypes<R, Offset = <R as Reader>::Offset>(
+    DebugLookup<R, PubStuffParser<R, PubTypesEntry<R, Offset>>>,
+)
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset;
 
 impl<'input, Endian> DebugPubTypes<EndianSlice<'input, Endian>>
 where
@@ -112,7 +121,12 @@ impl<R: Reader> From<R> for DebugPubTypes<R> {
 
 /// An iterator over the pubtypes from a `.debug_pubtypes` section.
 #[derive(Debug, Clone)]
-pub struct PubTypesEntryIter<R: Reader>(LookupEntryIter<R, PubStuffParser<R, PubTypesEntry<R>>>);
+pub struct PubTypesEntryIter<R, Offset = <R as Reader>::Offset>(
+    LookupEntryIter<R, PubStuffParser<R, PubTypesEntry<R, Offset>>>,
+)
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset;
 
 impl<R: Reader> PubTypesEntryIter<R> {
     /// Advance the iterator and return the next pubtype.

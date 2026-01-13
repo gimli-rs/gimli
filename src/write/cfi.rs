@@ -614,7 +614,7 @@ pub(crate) mod convert {
         ) -> ConvertResult<FrameTable>
         where
             R: Reader<Offset = usize>,
-            Section: read::UnwindSection<R>,
+            Section: read::UnwindSection<R, usize>,
             Section::Offset: read::UnwindOffset<usize>,
         {
             let bases = read::BaseAddresses::default().set_eh_frame(0);
@@ -660,7 +660,7 @@ pub(crate) mod convert {
         ) -> ConvertResult<CommonInformationEntry>
         where
             R: Reader<Offset = usize>,
-            Section: read::UnwindSection<R>,
+            Section: read::UnwindSection<R, usize>,
             Section::Offset: read::UnwindOffset<usize>,
         {
             let mut cie = CommonInformationEntry::new(
@@ -712,7 +712,7 @@ pub(crate) mod convert {
         ) -> ConvertResult<FrameDescriptionEntry>
         where
             R: Reader<Offset = usize>,
-            Section: read::UnwindSection<R>,
+            Section: read::UnwindSection<R, usize>,
             Section::Offset: read::UnwindOffset<usize>,
         {
             let address =
@@ -759,7 +759,7 @@ pub(crate) mod convert {
         ) -> ConvertResult<Option<CallFrameInstruction>>
         where
             R: Reader<Offset = usize>,
-            Section: read::UnwindSection<R>,
+            Section: read::UnwindSection<R, usize>,
         {
             let convert_expression = |x| {
                 Expression::from(

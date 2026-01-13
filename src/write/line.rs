@@ -1037,7 +1037,7 @@ pub use convert::*;
 #[cfg(feature = "read")]
 mod convert {
     use super::*;
-    use crate::read::{self, Reader};
+    use crate::read::{self, Reader, ReaderOffset};
     use crate::write::{self, ConvertError, ConvertResult};
 
     /// The result of [`ConvertLineProgram::read_row`].
@@ -1151,9 +1151,13 @@ mod convert {
     /// # }
     /// ```
     #[derive(Debug)]
-    pub struct ConvertLineProgram<'a, R: Reader> {
+    pub struct ConvertLineProgram<'a, R, Offset = <R as Reader>::Offset>
+    where
+        R: Reader<Offset = Offset>,
+        Offset: ReaderOffset,
+    {
         from_dwarf: &'a read::Dwarf<R>,
-        from_program: read::IncompleteLineProgram<R>,
+        from_program: read::IncompleteLineProgram<R, Offset>,
         from_row: read::LineRow,
         from_instructions: read::LineInstructions<R>,
         files: Vec<FileId>,
