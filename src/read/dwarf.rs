@@ -846,6 +846,12 @@ pub struct DwarfPackageSections<T> {
     pub debug_info: DebugInfo<T>,
     /// The `.debug_line.dwo` section.
     pub debug_line: DebugLine<T>,
+    /// The `.debug_macinfo.dwo` section.
+    ///
+    /// Only present when using GNU split-dwarf extension to DWARF 4.
+    pub debug_macinfo: DebugMacinfo<T>,
+    /// The `.debug_macro.dwo` section.
+    pub debug_macro: DebugMacro<T>,
     /// The `.debug_str.dwo` section.
     pub debug_str: DebugStr<T>,
     /// The `.debug_str_offsets.dwo` section.
@@ -881,6 +887,8 @@ impl<T> DwarfPackageSections<T> {
             debug_abbrev: Section::load(&mut section)?,
             debug_info: Section::load(&mut section)?,
             debug_line: Section::load(&mut section)?,
+            debug_macinfo: Section::load(&mut section)?,
+            debug_macro: Section::load(&mut section)?,
             debug_str: Section::load(&mut section)?,
             debug_str_offsets: Section::load(&mut section)?,
             debug_loc: Section::load(&mut section)?,
@@ -903,6 +911,8 @@ impl<T> DwarfPackageSections<T> {
                 debug_abbrev: self.debug_abbrev.borrow(&mut borrow),
                 debug_info: self.debug_info.borrow(&mut borrow),
                 debug_line: self.debug_line.borrow(&mut borrow),
+                debug_macinfo: self.debug_macinfo.borrow(&mut borrow),
+                debug_macro: self.debug_macro.borrow(&mut borrow),
                 debug_str: self.debug_str.borrow(&mut borrow),
                 debug_str_offsets: self.debug_str_offsets.borrow(&mut borrow),
                 debug_loc: self.debug_loc.borrow(&mut borrow),
@@ -932,6 +942,12 @@ pub struct DwarfPackage<R: Reader> {
 
     /// The `.debug_line.dwo` section.
     pub debug_line: DebugLine<R>,
+
+    /// The `.debug_macinfo.dwo` section.
+    pub debug_macinfo: DebugMacinfo<R>,
+
+    /// The `.debug_macro.dwo` section.
+    pub debug_macro: DebugMacro<R>,
 
     /// The `.debug_str.dwo` section.
     pub debug_str: DebugStr<R>,
@@ -983,6 +999,8 @@ impl<R: Reader> DwarfPackage<R> {
             debug_abbrev: sections.debug_abbrev,
             debug_info: sections.debug_info,
             debug_line: sections.debug_line,
+            debug_macinfo: sections.debug_macinfo,
+            debug_macro: sections.debug_macro,
             debug_str: sections.debug_str,
             debug_str_offsets: sections.debug_str_offsets,
             debug_loc: sections.debug_loc,
@@ -1069,6 +1087,10 @@ impl<R: Reader> DwarfPackage<R> {
         let mut loc_size = 0;
         let mut loclists_offset = 0;
         let mut loclists_size = 0;
+        let mut macinfo_offset = 0;
+        let mut macinfo_size = 0;
+        let mut macro_offset = 0;
+        let mut macro_size = 0;
         let mut str_offsets_offset = 0;
         let mut str_offsets_size = 0;
         let mut rnglists_offset = 0;
@@ -1097,6 +1119,14 @@ impl<R: Reader> DwarfPackage<R> {
                     loclists_offset = section.offset;
                     loclists_size = section.size;
                 }
+                IndexSectionId::DebugMacinfo => {
+                    macinfo_offset = section.offset;
+                    macinfo_size = section.size;
+                }
+                IndexSectionId::DebugMacro => {
+                    macro_offset = section.offset;
+                    macro_size = section.size;
+                }
                 IndexSectionId::DebugStrOffsets => {
                     str_offsets_offset = section.offset;
                     str_offsets_size = section.size;
@@ -1109,9 +1139,6 @@ impl<R: Reader> DwarfPackage<R> {
                     types_offset = section.offset;
                     types_size = section.size;
                 }
-                IndexSectionId::DebugMacro | IndexSectionId::DebugMacinfo => {
-                    // These are valid but we can't parse these yet.
-                }
             }
         }
 
@@ -1122,6 +1149,8 @@ impl<R: Reader> DwarfPackage<R> {
         let debug_loclists = self
             .debug_loclists
             .dwp_range(loclists_offset, loclists_size)?;
+        let debug_macinfo = self.debug_macinfo.dwp_range(macinfo_offset, macinfo_size)?;
+        let debug_macro = self.debug_macro.dwp_range(macro_offset, macro_size)?;
         let debug_str_offsets = self
             .debug_str_offsets
             .dwp_range(str_offsets_offset, str_offsets_size)?;
@@ -1137,8 +1166,6 @@ impl<R: Reader> DwarfPackage<R> {
 
         let debug_aranges = self.empty.clone().into();
         let debug_line_str = self.empty.clone().into();
-        let debug_macinfo = self.empty.clone().into();
-        let debug_macro = self.empty.clone().into();
         let debug_names = self.empty.clone().into();
 
         Ok(Dwarf {
