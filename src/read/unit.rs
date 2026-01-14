@@ -307,28 +307,6 @@ impl<R: Reader> Iterator for DebugInfoUnitHeadersIter<R> {
     }
 }
 
-/// Parse the unit type from the unit header.
-fn parse_unit_type<R: Reader>(input: &mut R) -> Result<constants::DwUt> {
-    let val = input.read_u8()?;
-    Ok(constants::DwUt(val))
-}
-
-/// Parse the `debug_abbrev_offset` in the compilation unit header.
-fn parse_debug_abbrev_offset<R: Reader>(
-    input: &mut R,
-    format: Format,
-) -> Result<DebugAbbrevOffset<R::Offset>> {
-    input.read_offset(format).map(DebugAbbrevOffset)
-}
-
-/// Parse the `debug_info_offset` in the arange header.
-pub(crate) fn parse_debug_info_offset<R: Reader>(
-    input: &mut R,
-    format: Format,
-) -> Result<DebugInfoOffset<R::Offset>> {
-    input.read_offset(format).map(DebugInfoOffset)
-}
-
 /// This enum specifies the type of the unit and any type
 /// specific data carried in the header (e.g. the type
 /// signature/type offset of a type unit).
@@ -712,7 +690,7 @@ where
     // DWARF 1 was very different, and is obsolete, so isn't supported by this
     // reader.
     if 2 <= version && version <= 4 {
-        abbrev_offset = parse_debug_abbrev_offset(&mut rest, format)?;
+        abbrev_offset = rest.read_offset(format).map(DebugAbbrevOffset)?;
         address_size = rest.read_address_size()?;
         // Before DWARF5, all units in the .debug_info section are compilation
         // units, and all units in the .debug_types section are type units.
@@ -721,9 +699,9 @@ where
             _ => constants::DW_UT_compile,
         };
     } else if version == 5 {
-        unit_type = parse_unit_type(&mut rest)?;
+        unit_type = rest.read_u8().map(constants::DwUt)?;
         address_size = rest.read_address_size()?;
-        abbrev_offset = parse_debug_abbrev_offset(&mut rest, format)?;
+        abbrev_offset = rest.read_offset(format).map(DebugAbbrevOffset)?;
     } else {
         return Err(Error::UnknownVersion(u64::from(version)));
     }
@@ -737,8 +715,8 @@ where
     let unit_type = match unit_type {
         constants::DW_UT_compile => UnitType::Compilation,
         constants::DW_UT_type => {
-            let type_signature = parse_type_signature(&mut rest)?;
-            let type_offset = parse_type_offset(&mut rest, format)?;
+            let type_signature = rest.read_u64().map(DebugTypeSignature)?;
+            let type_offset = rest.read_offset(format).map(UnitOffset)?;
             UnitType::Type {
                 type_signature,
                 type_offset,
@@ -746,16 +724,16 @@ where
         }
         constants::DW_UT_partial => UnitType::Partial,
         constants::DW_UT_skeleton => {
-            let dwo_id = parse_dwo_id(&mut rest)?;
+            let dwo_id = rest.read_u64().map(DwoId)?;
             UnitType::Skeleton(dwo_id)
         }
         constants::DW_UT_split_compile => {
-            let dwo_id = parse_dwo_id(&mut rest)?;
+            let dwo_id = rest.read_u64().map(DwoId)?;
             UnitType::SplitCompilation(dwo_id)
         }
         constants::DW_UT_split_type => {
-            let type_signature = parse_type_signature(&mut rest)?;
-            let type_offset = parse_type_offset(&mut rest, format)?;
+            let type_signature = rest.read_u64().map(DebugTypeSignature)?;
+            let type_offset = rest.read_offset(format).map(UnitOffset)?;
             UnitType::SplitType {
                 type_signature,
                 type_offset,
@@ -773,11 +751,6 @@ where
         unit_offset,
         rest,
     ))
-}
-
-/// Parse a dwo_id from a header
-fn parse_dwo_id<R: Reader>(input: &mut R) -> Result<DwoId> {
-    Ok(DwoId(input.read_u64()?))
 }
 
 /// A Debugging Information Entry (DIE).
@@ -1934,26 +1907,6 @@ where
     }
 }
 
-fn length_u8_value<R: Reader>(input: &mut R) -> Result<R> {
-    let len = input.read_u8().map(R::Offset::from_u8)?;
-    input.split(len)
-}
-
-fn length_u16_value<R: Reader>(input: &mut R) -> Result<R> {
-    let len = input.read_u16().map(R::Offset::from_u16)?;
-    input.split(len)
-}
-
-fn length_u32_value<R: Reader>(input: &mut R) -> Result<R> {
-    let len = input.read_u32().map(R::Offset::from_u32)?;
-    input.split(len)
-}
-
-fn length_uleb128_value<R: Reader>(input: &mut R) -> Result<R> {
-    let len = input.read_uleb128().and_then(R::Offset::from_u64)?;
-    input.split(len)
-}
-
 // Return true if the given `name` can be a section offset in DWARF version 2/3.
 // This is required to correctly handle relocations.
 fn allow_section_offset(name: constants::DwAt, version: u16) -> bool {
@@ -1997,19 +1950,23 @@ pub(crate) fn parse_attribute<R: Reader>(
                 AttributeValue::Addr(addr)
             }
             constants::DW_FORM_block1 => {
-                let block = length_u8_value(input)?;
+                let len = input.read_u8().map(R::Offset::from_u8)?;
+                let block = input.split(len)?;
                 AttributeValue::Block(block)
             }
             constants::DW_FORM_block2 => {
-                let block = length_u16_value(input)?;
+                let len = input.read_u16().map(R::Offset::from_u16)?;
+                let block = input.split(len)?;
                 AttributeValue::Block(block)
             }
             constants::DW_FORM_block4 => {
-                let block = length_u32_value(input)?;
+                let len = input.read_u32().map(R::Offset::from_u32)?;
+                let block = input.split(len)?;
                 AttributeValue::Block(block)
             }
             constants::DW_FORM_block => {
-                let block = length_uleb128_value(input)?;
+                let len = input.read_uleb128().and_then(R::Offset::from_u64)?;
+                let block = input.split(len)?;
                 AttributeValue::Block(block)
             }
             constants::DW_FORM_data1 => {
@@ -2059,7 +2016,8 @@ pub(crate) fn parse_attribute<R: Reader>(
                 AttributeValue::Sdata(data)
             }
             constants::DW_FORM_exprloc => {
-                let block = length_uleb128_value(input)?;
+                let len = input.read_uleb128().and_then(R::Offset::from_u64)?;
+                let block = input.split(len)?;
                 AttributeValue::Exprloc(Expression(block))
             }
             constants::DW_FORM_flag => {
@@ -3038,17 +2996,6 @@ impl<'abbrev, 'tree, R: Reader> EntriesTreeIter<'abbrev, 'tree, R> {
     }
 }
 
-/// Parse a type unit header's unique type signature. Callers should handle
-/// unique-ness checking.
-fn parse_type_signature<R: Reader>(input: &mut R) -> Result<DebugTypeSignature> {
-    input.read_u64().map(DebugTypeSignature)
-}
-
-/// Parse a type unit header's type offset.
-fn parse_type_offset<R: Reader>(input: &mut R, format: Format) -> Result<UnitOffset<R::Offset>> {
-    input.read_offset(format).map(UnitOffset)
-}
-
 /// The `DebugTypes` struct represents the DWARF type information
 /// found in the `.debug_types` section.
 #[derive(Debug, Default, Clone, Copy)]
@@ -3308,100 +3255,6 @@ mod tests {
         ) -> UnitHeader<EndianSlice<'b, E>> {
             x
         }
-    }
-
-    #[test]
-    fn test_parse_debug_abbrev_offset_32() {
-        let section = Section::with_endian(Endian::Little).L32(0x0403_0201);
-        let buf = section.get_contents().unwrap();
-        let buf = &mut EndianSlice::new(&buf, LittleEndian);
-
-        match parse_debug_abbrev_offset(buf, Format::Dwarf32) {
-            Ok(val) => assert_eq!(val, DebugAbbrevOffset(0x0403_0201)),
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        };
-    }
-
-    #[test]
-    fn test_parse_debug_abbrev_offset_32_incomplete() {
-        let buf = [0x01, 0x02];
-        let buf = &mut EndianSlice::new(&buf, LittleEndian);
-
-        match parse_debug_abbrev_offset(buf, Format::Dwarf32) {
-            Err(Error::UnexpectedEof(_)) => {}
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        };
-    }
-
-    #[test]
-    #[cfg(target_pointer_width = "64")]
-    fn test_parse_debug_abbrev_offset_64() {
-        let section = Section::with_endian(Endian::Little).L64(0x0807_0605_0403_0201);
-        let buf = section.get_contents().unwrap();
-        let buf = &mut EndianSlice::new(&buf, LittleEndian);
-
-        match parse_debug_abbrev_offset(buf, Format::Dwarf64) {
-            Ok(val) => assert_eq!(val, DebugAbbrevOffset(0x0807_0605_0403_0201)),
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        };
-    }
-
-    #[test]
-    fn test_parse_debug_abbrev_offset_64_incomplete() {
-        let buf = [0x01, 0x02];
-        let buf = &mut EndianSlice::new(&buf, LittleEndian);
-
-        match parse_debug_abbrev_offset(buf, Format::Dwarf64) {
-            Err(Error::UnexpectedEof(_)) => {}
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        };
-    }
-
-    #[test]
-    fn test_parse_debug_info_offset_32() {
-        let section = Section::with_endian(Endian::Little).L32(0x0403_0201);
-        let buf = section.get_contents().unwrap();
-        let buf = &mut EndianSlice::new(&buf, LittleEndian);
-
-        match parse_debug_info_offset(buf, Format::Dwarf32) {
-            Ok(val) => assert_eq!(val, DebugInfoOffset(0x0403_0201)),
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        };
-    }
-
-    #[test]
-    fn test_parse_debug_info_offset_32_incomplete() {
-        let buf = [0x01, 0x02];
-        let buf = &mut EndianSlice::new(&buf, LittleEndian);
-
-        match parse_debug_info_offset(buf, Format::Dwarf32) {
-            Err(Error::UnexpectedEof(_)) => {}
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        };
-    }
-
-    #[test]
-    #[cfg(target_pointer_width = "64")]
-    fn test_parse_debug_info_offset_64() {
-        let section = Section::with_endian(Endian::Little).L64(0x0807_0605_0403_0201);
-        let buf = section.get_contents().unwrap();
-        let buf = &mut EndianSlice::new(&buf, LittleEndian);
-
-        match parse_debug_info_offset(buf, Format::Dwarf64) {
-            Ok(val) => assert_eq!(val, DebugInfoOffset(0x0807_0605_0403_0201)),
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        };
-    }
-
-    #[test]
-    fn test_parse_debug_info_offset_64_incomplete() {
-        let buf = [0x01, 0x02];
-        let buf = &mut EndianSlice::new(&buf, LittleEndian);
-
-        match parse_debug_info_offset(buf, Format::Dwarf64) {
-            Err(Error::UnexpectedEof(_)) => {}
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        };
     }
 
     #[test]
@@ -3780,47 +3633,6 @@ mod tests {
             Ok(expected_unit)
         );
         assert_eq!(*rest, EndianSlice::new(expected_rest, LittleEndian));
-    }
-
-    #[test]
-    fn test_parse_type_offset_32_ok() {
-        let buf = [0x12, 0x34, 0x56, 0x78, 0x00];
-        let rest = &mut EndianSlice::new(&buf, LittleEndian);
-
-        match parse_type_offset(rest, Format::Dwarf32) {
-            Ok(offset) => {
-                assert_eq!(rest.len(), 1);
-                assert_eq!(UnitOffset(0x7856_3412), offset);
-            }
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        }
-    }
-
-    #[test]
-    #[cfg(target_pointer_width = "64")]
-    fn test_parse_type_offset_64_ok() {
-        let buf = [0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xff, 0x00];
-        let rest = &mut EndianSlice::new(&buf, LittleEndian);
-
-        match parse_type_offset(rest, Format::Dwarf64) {
-            Ok(offset) => {
-                assert_eq!(rest.len(), 1);
-                assert_eq!(UnitOffset(0xffde_bc9a_7856_3412), offset);
-            }
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        }
-    }
-
-    #[test]
-    fn test_parse_type_offset_incomplete() {
-        // Need at least 4 bytes.
-        let buf = [0xff, 0xff, 0xff];
-        let rest = &mut EndianSlice::new(&buf, LittleEndian);
-
-        match parse_type_offset(rest, Format::Dwarf32) {
-            Err(Error::UnexpectedEof(_)) => {}
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        };
     }
 
     #[test]
