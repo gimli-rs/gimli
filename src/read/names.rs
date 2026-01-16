@@ -556,7 +556,8 @@ impl<R: Reader> NameIndex<R> {
     pub fn name_entry(&self, offset: NameEntryOffset<R::Offset>) -> Result<NameEntry<R>> {
         let mut entries = self.entry_pool.clone();
         entries.skip(offset.0)?;
-        NameEntry::parse(&mut entries, offset, &self.abbreviations)?.ok_or(Error::UnexpectedNull)
+        NameEntry::parse(&mut entries, offset, &self.abbreviations)?
+            .ok_or(Error::NoEntryAtGivenOffset)
     }
 
     /// Get the abbreviation table for name entries in this name index.

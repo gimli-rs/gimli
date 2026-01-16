@@ -2861,7 +2861,7 @@ impl<'abbrev, R: Reader> EntriesTree<'abbrev, R> {
         self.input.input = self.root.clone();
         self.input.depth = 0;
         if !self.input.read_entry(&mut self.entry)? {
-            return Err(Error::UnexpectedNull);
+            return Err(Error::NoEntryAtGivenOffset);
         }
         Ok(EntriesTreeNode::new(self, 1))
     }
