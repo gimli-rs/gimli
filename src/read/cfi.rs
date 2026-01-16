@@ -161,7 +161,7 @@ impl<R: Reader> EhFrameHdr<R> {
             fde_count = 0
         } else {
             if fde_count_enc != fde_count_enc.format() {
-                return Err(Error::UnsupportedPointerEncoding);
+                return Err(Error::UnsupportedPointerEncoding(fde_count_enc));
             }
             fde_count = parse_encoded_value(fde_count_enc, &parameters, &mut reader)?;
         }
@@ -256,13 +256,10 @@ impl<'a, 'bases, R: Reader> EhHdrTableIter<'a, 'bases, R> {
     pub fn nth(&mut self, n: usize) -> Result<Option<(Pointer, Pointer)>> {
         use core::convert::TryFrom;
         let size = match self.hdr.table_enc.format() {
-            constants::DW_EH_PE_uleb128 | constants::DW_EH_PE_sleb128 => {
-                return Err(Error::VariableLengthSearchTable);
-            }
             constants::DW_EH_PE_sdata2 | constants::DW_EH_PE_udata2 => 2,
             constants::DW_EH_PE_sdata4 | constants::DW_EH_PE_udata4 => 4,
             constants::DW_EH_PE_sdata8 | constants::DW_EH_PE_udata8 => 8,
-            _ => return Err(Error::UnknownPointerEncoding(self.hdr.table_enc)),
+            _ => return Err(Error::UnsupportedPointerEncoding(self.hdr.table_enc)),
         };
 
         let row_size = size * 2;
@@ -343,13 +340,10 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     /// To be sure, you **must** call `contains` on the FDE.
     pub fn lookup(&self, address: u64, bases: &BaseAddresses) -> Result<Pointer> {
         let size = match self.hdr.table_enc.format() {
-            constants::DW_EH_PE_uleb128 | constants::DW_EH_PE_sleb128 => {
-                return Err(Error::VariableLengthSearchTable);
-            }
             constants::DW_EH_PE_sdata2 | constants::DW_EH_PE_udata2 => 2,
             constants::DW_EH_PE_sdata4 | constants::DW_EH_PE_udata4 => 4,
             constants::DW_EH_PE_sdata8 | constants::DW_EH_PE_udata8 => 8,
-            _ => return Err(Error::UnknownPointerEncoding(self.hdr.table_enc)),
+            _ => return Err(Error::UnsupportedPointerEncoding(self.hdr.table_enc)),
         };
 
         let row_size = size * 2;
@@ -656,7 +650,7 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
         let offset = UnwindOffset::into(offset);
         let input = &mut self.section().clone();
         input.skip(offset)?;
-        CommonInformationEntry::parse(self, bases, input)
+        CommonInformationEntry::parse(self, bases, input, offset)
     }
 
     /// Parse the `PartialFrameDescriptionEntry` at the given offset.
@@ -668,7 +662,7 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
         let offset = UnwindOffset::into(offset);
         let input = &mut self.section().clone();
         input.skip(offset)?;
-        PartialFrameDescriptionEntry::parse_partial(self, bases, input)
+        PartialFrameDescriptionEntry::parse_partial(self, bases, input, offset)
     }
 
     /// Parse the `FrameDescriptionEntry` at the given offset.
@@ -1337,12 +1331,13 @@ impl<R: Reader> CommonInformationEntry<R> {
         section: &Section,
         bases: &BaseAddresses,
         input: &mut R,
+        offset: R::Offset,
     ) -> Result<CommonInformationEntry<R>> {
         let Some(prefix) = parse_cfi_entry_prefix(section, input)? else {
-            return Err(Error::NoEntryAtGivenOffset);
+            return Err(Error::NoEntryAtGivenOffset(offset.into_u64()));
         };
         if !Section::is_cie(prefix.format, prefix.cie_id_or_offset) {
-            return Err(Error::NotCieId);
+            return Err(Error::NotCieId(offset.into_u64()));
         }
         CommonInformationEntry::from_prefix(section, bases, prefix)
     }
@@ -1369,7 +1364,7 @@ impl<R: Reader> CommonInformationEntry<R> {
             let address_size = rest.read_address_size()?;
             let segment_size = rest.read_u8()?;
             if segment_size != 0 {
-                return Err(Error::UnsupportedSegmentSize);
+                return Err(Error::UnsupportedSegmentSize(segment_size));
             }
             address_size
         } else {
@@ -1564,12 +1559,13 @@ where
         section: &Section,
         bases: &'bases BaseAddresses,
         input: &mut R,
+        offset: R::Offset,
     ) -> Result<PartialFrameDescriptionEntry<'bases, Section, R>> {
         let Some(prefix) = parse_cfi_entry_prefix(section, input)? else {
-            return Err(Error::NoEntryAtGivenOffset);
+            return Err(Error::NoEntryAtGivenOffset(offset.into_u64()));
         };
         if Section::is_cie(prefix.format, prefix.cie_id_or_offset) {
-            return Err(Error::NotCiePointer);
+            return Err(Error::NotCiePointer(offset.into_u64()));
         }
         Self::from_prefix(section, bases, prefix)
     }
@@ -1582,7 +1578,7 @@ where
         let cie_offset = R::Offset::from_u64(prefix.cie_id_or_offset)?;
         let Some(cie_offset) = section.resolve_cie_offset(prefix.cie_offset_base, cie_offset)
         else {
-            return Err(Error::OffsetOutOfBounds);
+            return Err(Error::OffsetOutOfBounds(cie_offset.into_u64()));
         };
 
         let fde = PartialFrameDescriptionEntry {
@@ -2371,7 +2367,7 @@ where
             // address for the next row.
             SetLoc { address } => {
                 if address < self.ctx.start_address() {
-                    return Err(Error::InvalidAddressRange);
+                    return Err(Error::InvalidCfiSetLoc(address));
                 }
 
                 self.next_start_address = address;
@@ -3650,7 +3646,7 @@ impl Pointer {
     pub fn direct(self) -> Result<u64> {
         match self {
             Pointer::Direct(p) => Ok(p),
-            Pointer::Indirect(_) => Err(Error::UnsupportedPointerEncoding),
+            Pointer::Indirect(_) => Err(Error::UnsupportedIndirectPointer),
         }
     }
 
@@ -3717,7 +3713,7 @@ fn parse_encoded_pointer<R: Reader>(
                 return Err(Error::FuncRelativePointerInBadContext);
             }
         }
-        constants::DW_EH_PE_aligned => return Err(Error::UnsupportedPointerEncoding),
+        constants::DW_EH_PE_aligned => return Err(Error::UnsupportedPointerEncoding(encoding)),
         _ => unreachable!(),
     };
 
@@ -3826,7 +3822,7 @@ mod tests {
         let bases = Default::default();
         match parse_cfi_entry(&section, &bases, input) {
             Ok(Some(CieOrFde::Fde(partial))) => partial.parse(get_cie),
-            Ok(_) => Err(Error::NoEntryAtGivenOffset),
+            Ok(_) => Err(Error::NoEntryAtGivenOffset(0)),
             Err(e) => Err(e),
         }
     }
@@ -4030,7 +4026,7 @@ mod tests {
         debug_frame.set_address_size(address_size);
         let input = &mut EndianSlice::new(&section, E::default());
         let bases = Default::default();
-        let result = CommonInformationEntry::parse(&debug_frame, &bases, input);
+        let result = CommonInformationEntry::parse(&debug_frame, &bases, input, 0);
         let result = result.map(|cie| (*input, cie)).map_eof(&section);
         assert_eq!(result, expected);
     }
@@ -4084,7 +4080,7 @@ mod tests {
             .B32(4)
             // Not the CIE Id.
             .B32(0xbad1_bad2);
-        assert_parse_cie(kind, section, 8, Err(Error::NotCieId));
+        assert_parse_cie(kind, section, 8, Err(Error::NotCieId(0)));
     }
 
     #[test]
@@ -4225,7 +4221,8 @@ mod tests {
             CommonInformationEntry::parse(
                 &debug_frame,
                 &bases,
-                &mut EndianSlice::new(&contents, LittleEndian)
+                &mut EndianSlice::new(&contents, LittleEndian),
+                0,
             )
             .map_eof(&contents),
             Err(Error::UnexpectedEof(ReaderOffsetId(4)))
@@ -5404,7 +5401,7 @@ mod tests {
         ctx.row_mut().start_address = 999;
         let expected = ctx.clone();
         let instructions = [(
-            Err(Error::InvalidAddressRange),
+            Err(Error::InvalidCfiSetLoc(42)),
             CallFrameInstruction::SetLoc { address: 42 },
         )];
         assert_eval(ctx, expected, cie, None, instructions);
@@ -6500,7 +6497,9 @@ mod tests {
         let table = table.unwrap();
         assert_eq!(
             table.lookup(0, &bases),
-            Err(Error::VariableLengthSearchTable)
+            Err(Error::UnsupportedPointerEncoding(
+                constants::DW_EH_PE_uleb128
+            ))
         );
     }
 
@@ -6517,7 +6516,12 @@ mod tests {
         let bases = BaseAddresses::default();
         let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), Error::UnsupportedPointerEncoding);
+        assert_eq!(
+            result.unwrap_err(),
+            Error::UnsupportedPointerEncoding(
+                constants::DW_EH_PE_indirect | constants::DW_EH_PE_udata4
+            )
+        );
     }
 
     #[test]
@@ -6544,7 +6548,7 @@ mod tests {
         let table = table.unwrap();
         assert_eq!(
             table.lookup(0, &bases),
-            Err(Error::UnsupportedPointerEncoding)
+            Err(Error::UnsupportedIndirectPointer)
         );
     }
 
@@ -6737,7 +6741,7 @@ mod tests {
 
         assert_eq!(
             eh_frame.cie_from_offset(&bases, EhFrameOffset(0)),
-            Err(Error::NoEntryAtGivenOffset)
+            Err(Error::NoEntryAtGivenOffset(0))
         );
     }
 
@@ -6759,7 +6763,7 @@ mod tests {
 
         assert_eq!(
             debug_frame.cie_from_offset(&bases, DebugFrameOffset(0)),
-            Err(Error::NoEntryAtGivenOffset)
+            Err(Error::NoEntryAtGivenOffset(0))
         );
     }
 
@@ -6809,7 +6813,7 @@ mod tests {
         let buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
         assert_eq!(
             resolve_cie_offset(&buf, buf.len() + 4 + 2),
-            Err(Error::OffsetOutOfBounds)
+            Err(Error::OffsetOutOfBounds(buf.len() as u64 + 4 + 2))
         );
     }
 
@@ -6818,7 +6822,7 @@ mod tests {
         let buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
         assert_eq!(
             resolve_cie_offset(&buf, usize::MAX),
-            Err(Error::OffsetOutOfBounds)
+            Err(Error::OffsetOutOfBounds(u32::MAX as u64))
         );
     }
 
@@ -6899,7 +6903,7 @@ mod tests {
         let section = Section::with_endian(kind.endian())
             .cie(kind, None, &mut cie)
             .mark(&end_of_cie)
-            .fde(kind, 99_999_999_999_999, &mut fde);
+            .fde(kind, 99_999_999, &mut fde);
 
         section.start().set_const(0);
         let section = section.get_contents().unwrap();
@@ -6911,7 +6915,7 @@ mod tests {
             &mut section.range_from(end_of_cie.value().unwrap() as usize..),
             UnwindSection::cie_from_offset,
         );
-        assert_eq!(result, Err(Error::OffsetOutOfBounds));
+        assert_eq!(result, Err(Error::OffsetOutOfBounds(99_999_999)));
     }
 
     #[test]
@@ -7933,7 +7937,7 @@ mod tests {
         };
         assert_eq!(
             parse_encoded_pointer(encoding, &parameters, &mut rest),
-            Err(Error::UnsupportedPointerEncoding)
+            Err(Error::UnsupportedPointerEncoding(encoding))
         );
     }
 

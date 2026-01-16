@@ -557,7 +557,7 @@ impl<R: Reader> NameIndex<R> {
         let mut entries = self.entry_pool.clone();
         entries.skip(offset.0)?;
         NameEntry::parse(&mut entries, offset, &self.abbreviations)?
-            .ok_or(Error::NoEntryAtGivenOffset)
+            .ok_or(Error::NoEntryAtGivenOffset(offset.0.into_u64()))
     }
 
     /// Get the abbreviation table for name entries in this name index.
@@ -880,7 +880,7 @@ impl<R: Reader> NameEntry<R> {
             return Ok(None);
         }
         let Some(abbrev) = abbreviations.get(abbrev_code) else {
-            return Err(Error::UnknownAbbreviation(abbrev_code));
+            return Err(Error::InvalidAbbreviationCode(abbrev_code));
         };
         let tag = abbrev.tag();
         let specs = abbrev.attributes();
@@ -935,7 +935,7 @@ impl<R: Reader> NameAttribute<R> {
                     u32::try_from(val).map_err(|_| Error::InvalidNameAttributeIndex(val))?;
                 names.compile_unit(index)
             }
-            _ => Err(Error::UnsupportedAttributeForm),
+            _ => Err(Error::UnsupportedAttributeForm(self.form)),
         }
     }
 
@@ -947,7 +947,7 @@ impl<R: Reader> NameAttribute<R> {
                     u32::try_from(val).map_err(|_| Error::InvalidNameAttributeIndex(val))?;
                 names.type_unit(index)
             }
-            _ => Err(Error::UnsupportedAttributeForm),
+            _ => Err(Error::UnsupportedAttributeForm(self.form)),
         }
     }
 
@@ -955,7 +955,7 @@ impl<R: Reader> NameAttribute<R> {
     pub fn die_offset(&self) -> Result<UnitOffset<R::Offset>> {
         match self.value {
             NameAttributeValue::Offset(val) => Ok(UnitOffset(val)),
-            _ => Err(Error::UnsupportedAttributeForm),
+            _ => Err(Error::UnsupportedAttributeForm(self.form)),
         }
     }
 
@@ -967,7 +967,7 @@ impl<R: Reader> NameAttribute<R> {
         match self.value {
             NameAttributeValue::Offset(val) => Ok(Some(NameEntryOffset(val))),
             NameAttributeValue::Flag(true) => Ok(None),
-            _ => Err(Error::UnsupportedAttributeForm),
+            _ => Err(Error::UnsupportedAttributeForm(self.form)),
         }
     }
 
@@ -975,7 +975,7 @@ impl<R: Reader> NameAttribute<R> {
     pub fn type_hash(&self) -> Result<u64> {
         match self.value {
             NameAttributeValue::Unsigned(val) => Ok(val),
-            _ => Err(Error::UnsupportedAttributeForm),
+            _ => Err(Error::UnsupportedAttributeForm(self.form)),
         }
     }
 }
@@ -1583,7 +1583,10 @@ mod tests {
             );
 
             let mut entries = name_index.name_entries(name).unwrap();
-            assert!(matches!(entries.next(), Err(Error::UnknownAbbreviation(4))));
+            assert!(matches!(
+                entries.next(),
+                Err(Error::InvalidAbbreviationCode(4))
+            ));
             assert!(matches!(entries.next(), Ok(None)));
 
             // No entries

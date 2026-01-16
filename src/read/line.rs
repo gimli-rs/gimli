@@ -1246,7 +1246,7 @@ where
             address_size = rest.read_address_size()?;
             let segment_selector_size = rest.read_u8()?;
             if segment_selector_size != 0 {
-                return Err(Error::UnsupportedSegmentSize);
+                return Err(Error::UnsupportedSegmentSize(segment_selector_size));
             }
         }
 

@@ -267,8 +267,9 @@ impl Abbreviations {
         let mut abbrevs = Abbreviations::empty();
 
         while let Some(abbrev) = Abbreviation::parse(input)? {
+            let code = abbrev.code;
             if abbrevs.insert(abbrev).is_err() {
-                return Err(Error::DuplicateAbbreviationCode);
+                return Err(Error::DuplicateAbbreviationCode(code));
             }
         }
 
@@ -348,7 +349,7 @@ impl Abbreviation {
         if val == constants::DW_CHILDREN_no || val == constants::DW_CHILDREN_yes {
             Ok(val)
         } else {
-            Err(Error::BadHasChildren)
+            Err(Error::InvalidAbbreviationChildren(val))
         }
     }
 
@@ -894,7 +895,7 @@ pub(crate) mod tests {
         let buf = &mut EndianSlice::new(&buf, LittleEndian);
 
         match Abbreviations::parse(buf) {
-            Err(Error::DuplicateAbbreviationCode) => {}
+            Err(Error::DuplicateAbbreviationCode(1)) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }
@@ -927,7 +928,7 @@ pub(crate) mod tests {
         let val = Abbreviation::parse_has_children(rest).expect("Should parse children");
         assert_eq!(val, constants::DW_CHILDREN_yes);
         match Abbreviation::parse_has_children(rest) {
-            Err(Error::BadHasChildren) => {}
+            Err(Error::InvalidAbbreviationChildren(constants::DwChildren(2))) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }
