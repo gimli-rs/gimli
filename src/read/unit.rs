@@ -537,10 +537,10 @@ where
     /// Get the underlying bytes for the supplied range.
     pub fn range(&self, idx: Range<UnitOffset<Offset>>) -> Result<R> {
         if !self.is_in_bounds(idx.start) {
-            return Err(Error::OffsetOutOfBounds);
+            return Err(Error::OffsetOutOfBounds(idx.start.0.into_u64()));
         }
         if !self.is_in_bounds(idx.end) {
-            return Err(Error::OffsetOutOfBounds);
+            return Err(Error::OffsetOutOfBounds(idx.end.0.into_u64()));
         }
         assert!(idx.start <= idx.end);
         let size_of_header = self.header_size();
@@ -555,7 +555,7 @@ where
     /// Get the underlying bytes for the supplied range.
     pub fn range_from(&self, idx: RangeFrom<UnitOffset<Offset>>) -> Result<R> {
         if !self.is_in_bounds(idx.start) {
-            return Err(Error::OffsetOutOfBounds);
+            return Err(Error::OffsetOutOfBounds(idx.start.0.into_u64()));
         }
         let start = idx.start.0 - self.header_size();
         let mut input = self.entries_buf.clone();
@@ -566,7 +566,7 @@ where
     /// Get the underlying bytes for the supplied range.
     pub fn range_to(&self, idx: RangeTo<UnitOffset<Offset>>) -> Result<R> {
         if !self.is_in_bounds(idx.end) {
-            return Err(Error::OffsetOutOfBounds);
+            return Err(Error::OffsetOutOfBounds(idx.end.0.into_u64()));
         }
         let end = idx.end.0 - self.header_size();
         let mut input = self.entries_buf.clone();
@@ -588,7 +588,7 @@ where
         let mut input = self.entries_raw(abbreviations, Some(offset))?;
         input.read_entry(&mut entry)?;
         if entry.is_null() {
-            Err(Error::NoEntryAtGivenOffset)
+            Err(Error::NoEntryAtGivenOffset(offset.0.into_u64()))
         } else {
             Ok(entry)
         }
@@ -739,7 +739,7 @@ where
                 type_offset,
             }
         }
-        _ => return Err(Error::UnsupportedUnitType),
+        _ => return Err(Error::UnknownUnitType(unit_type)),
     };
 
     Ok(UnitHeader::new(
@@ -2403,7 +2403,7 @@ impl<'abbrev, R: Reader> EntriesRaw<'abbrev, R> {
         let abbrev = self
             .abbreviations
             .get(code)
-            .ok_or(Error::UnknownAbbreviation(code))?;
+            .ok_or(Error::InvalidAbbreviationCode(code))?;
         if abbrev.has_children() {
             self.depth += 1;
         }
@@ -2861,7 +2861,7 @@ impl<'abbrev, R: Reader> EntriesTree<'abbrev, R> {
         self.input.input = self.root.clone();
         self.input.depth = 0;
         if !self.input.read_entry(&mut self.entry)? {
-            return Err(Error::NoEntryAtGivenOffset);
+            return Err(Error::NoEntryAtGivenOffset(self.entry.offset.0.into_u64()));
         }
         Ok(EntriesTreeNode::new(self, 1))
     }
@@ -5236,7 +5236,7 @@ mod tests {
 
         let cursor = unit.entries_at_offset(&abbrevs, UnitOffset(0));
         match cursor {
-            Err(Error::OffsetOutOfBounds) => {}
+            Err(Error::OffsetOutOfBounds(0)) => {}
             otherwise => {
                 panic!("Unexpected parse result = {:#?}", otherwise);
             }

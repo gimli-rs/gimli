@@ -605,15 +605,15 @@ impl<R: Reader> Dwarf<R> {
                 constants::DW_AT_low_pc => {
                     low_pc = Some(
                         self.attr_address(unit, attr.value())?
-                            .ok_or(Error::UnsupportedAttributeForm)?,
+                            .ok_or(Error::UnsupportedAttributeForm(attr.form()))?,
                     );
                 }
                 constants::DW_AT_high_pc => match attr.value() {
                     AttributeValue::Udata(val) => size = Some(val),
-                    attr => {
+                    value => {
                         high_pc = Some(
-                            self.attr_address(unit, attr)?
-                                .ok_or(Error::UnsupportedAttributeForm)?,
+                            self.attr_address(unit, value)?
+                                .ok_or(Error::UnsupportedAttributeForm(attr.form()))?,
                         );
                     }
                 },
@@ -1725,7 +1725,7 @@ mod tests {
             Err(e) => {
                 assert_eq!(
                     dwarf.format_error(e),
-                    "Hit the end of input before it was expected at .debug_str+0x1"
+                    "unexpected end of input at .debug_str+0x1"
                 );
             }
         }
@@ -1734,7 +1734,7 @@ mod tests {
             Err(e) => {
                 assert_eq!(
                     dwarf.format_error(e),
-                    "Hit the end of input before it was expected at .debug_str(sup)+0x1"
+                    "unexpected end of input at .debug_str(sup)+0x1"
                 );
             }
         }
