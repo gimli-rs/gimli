@@ -1725,7 +1725,7 @@ mod tests {
             Err(e) => {
                 assert_eq!(
                     dwarf.format_error(e),
-                    "Hit the end of input before it was expected at .debug_str+0x1"
+                    "unexpected end of input at .debug_str+0x1"
                 );
             }
         }
@@ -1734,7 +1734,7 @@ mod tests {
             Err(e) => {
                 assert_eq!(
                     dwarf.format_error(e),
-                    "Hit the end of input before it was expected at .debug_str(sup)+0x1"
+                    "unexpected end of input at .debug_str(sup)+0x1"
                 );
             }
         }
