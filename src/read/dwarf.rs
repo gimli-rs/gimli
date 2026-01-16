@@ -776,7 +776,7 @@ impl<R: Reader> Dwarf<R> {
             },
             _ => {}
         }
-        err.description().into()
+        format!("{}", err)
     }
 
     /// Return a fallible iterator over the macro information from `.debug_macinfo` for the given offset.
@@ -1738,6 +1738,6 @@ mod tests {
                 );
             }
         }
-        assert_eq!(dwarf.format_error(Error::Io), Error::Io.description());
+        assert_eq!(dwarf.format_error(Error::Io), format!("{}", Error::Io));
     }
 }
