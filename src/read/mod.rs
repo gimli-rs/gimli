@@ -270,16 +270,10 @@ pub enum Error {
     /// The abbreviation's has-children byte was not one of
     /// `DW_CHILDREN_{yes,no}`.
     BadHasChildren,
-    /// The specified length is impossible.
-    BadLength,
     /// Found an unknown `DW_FORM_*` type.
     UnknownForm(constants::DwForm),
-    /// Expected a zero, found something else.
-    ExpectedZero,
     /// Found an abbreviation code that has already been used.
     DuplicateAbbreviationCode,
-    /// Found a duplicate arange.
-    DuplicateArange,
     /// Found an unknown reserved length value.
     UnknownReservedLength,
     /// Found an unknown DWARF version.
@@ -288,12 +282,6 @@ pub enum Error {
     UnknownAbbreviation(u64),
     /// Hit the end of input before it was expected.
     UnexpectedEof(ReaderOffsetId),
-    /// Read a null entry before it was expected.
-    UnexpectedNull,
-    /// Found an unknown standard opcode.
-    UnknownStandardOpcode(constants::DwLns),
-    /// Found an unknown extended opcode.
-    UnknownExtendedOpcode(constants::DwLne),
     /// Found an unknown location-lists format.
     UnknownLocListsEntry(constants::DwLle),
     /// Found an unknown range-lists format.
@@ -302,8 +290,6 @@ pub enum Error {
     UnsupportedAddressSize(u8),
     /// The specified offset size is not supported.
     UnsupportedOffsetSize(u8),
-    /// The specified field size is not supported.
-    UnsupportedFieldSize(u8),
     /// The minimum instruction length must not be zero.
     MinimumInstructionLengthZero,
     /// The maximum operations per instruction must not be zero.
@@ -391,8 +377,6 @@ pub enum Error {
     VariableLengthSearchTable,
     /// The `DW_UT_*` value for this unit is not supported yet.
     UnsupportedUnitType,
-    /// Ranges using AddressIndex are not supported yet.
-    UnsupportedAddressIndex,
     /// Nonzero segment selector sizes aren't supported yet.
     UnsupportedSegmentSize,
     /// A compilation unit or type unit is missing its top level DIE.
@@ -472,25 +456,18 @@ impl Error {
                 "The abbreviation's has-children byte was not one of
                  `DW_CHILDREN_{yes,no}`"
             }
-            Error::BadLength => "The specified length is impossible",
             Error::UnknownForm(_) => "Found an unknown `DW_FORM_*` type",
-            Error::ExpectedZero => "Expected a zero, found something else",
             Error::DuplicateAbbreviationCode => {
                 "Found an abbreviation code that has already been used"
             }
-            Error::DuplicateArange => "Found a duplicate arange",
             Error::UnknownReservedLength => "Found an unknown reserved length value",
             Error::UnknownVersion(_) => "Found an unknown DWARF version",
             Error::UnknownAbbreviation(_) => "Found a record with an unknown abbreviation code",
             Error::UnexpectedEof(_) => "Hit the end of input before it was expected",
-            Error::UnexpectedNull => "Read a null entry before it was expected.",
-            Error::UnknownStandardOpcode(_) => "Found an unknown standard opcode",
-            Error::UnknownExtendedOpcode(_) => "Found an unknown extended opcode",
             Error::UnknownLocListsEntry(_) => "Found an unknown location lists entry",
             Error::UnknownRangeListsEntry(_) => "Found an unknown range lists entry",
             Error::UnsupportedAddressSize(_) => "The specified address size is not supported",
             Error::UnsupportedOffsetSize(_) => "The specified offset size is not supported",
-            Error::UnsupportedFieldSize(_) => "The specified field size is not supported",
             Error::MinimumInstructionLengthZero => {
                 "The minimum instruction length must not be zero."
             }
@@ -563,7 +540,6 @@ impl Error {
                  which makes binary search impossible."
             }
             Error::UnsupportedUnitType => "The `DW_UT_*` value for this unit is not supported yet",
-            Error::UnsupportedAddressIndex => "Ranges involving AddressIndex are not supported yet",
             Error::UnsupportedSegmentSize => "Nonzero segment size not supported yet",
             Error::MissingUnitDie => {
                 "A compilation unit or type unit is missing its top level DIE."
