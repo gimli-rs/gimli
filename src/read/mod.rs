@@ -412,159 +412,263 @@ pub enum Error {
 }
 
 impl fmt::Display for Error {
-    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> ::core::result::Result<(), fmt::Error> {
-        write!(f, "{}", self.description())
-    }
-}
-
-impl Error {
-    /// A short description of the error.
-    pub fn description(&self) -> &str {
         match *self {
-            Error::Io => "An I/O error occurred while reading.",
+            Error::Io => write!(f, "An I/O error occurred while reading."),
             Error::PcRelativePointerButSectionBaseIsUndefined => {
-                "Found a PC relative pointer, but the section base is undefined."
+                write!(
+                    f,
+                    "Found a PC relative pointer, but the section base is undefined."
+                )
             }
             Error::TextRelativePointerButTextBaseIsUndefined => {
-                "Found a `.text` relative pointer, but the `.text` base is undefined."
+                write!(
+                    f,
+                    "Found a `.text` relative pointer, but the `.text` base is undefined."
+                )
             }
             Error::DataRelativePointerButDataBaseIsUndefined => {
-                "Found a data relative pointer, but the data base is undefined."
+                write!(
+                    f,
+                    "Found a data relative pointer, but the data base is undefined."
+                )
             }
             Error::FuncRelativePointerInBadContext => {
-                "Found a function relative pointer in a context that does not have a function base."
+                write!(
+                    f,
+                    "Found a function relative pointer in a context that does not have a function base."
+                )
             }
             Error::CannotParseOmitPointerEncoding => {
-                "Cannot parse a pointer with a `DW_EH_PE_omit` encoding."
+                write!(f, "Cannot parse a pointer with a `DW_EH_PE_omit` encoding.")
             }
-            Error::BadUnsignedLeb128 => "An error parsing an unsigned LEB128 value",
-            Error::BadSignedLeb128 => "An error parsing a signed LEB128 value",
+            Error::BadUnsignedLeb128 => write!(f, "An error parsing an unsigned LEB128 value"),
+            Error::BadSignedLeb128 => write!(f, "An error parsing a signed LEB128 value"),
             Error::AbbreviationTagZero => {
-                "An abbreviation declared that its tag is zero,
+                write!(
+                    f,
+                    "An abbreviation declared that its tag is zero,
                  but zero is reserved for null records"
+                )
             }
             Error::AttributeNameZero => {
-                "An attribute specification declared that its name is zero,
+                write!(
+                    f,
+                    "An attribute specification declared that its name is zero,
                  but zero is reserved for null records"
+                )
             }
             Error::AttributeFormZero => {
-                "An attribute specification declared that its form is zero,
+                write!(
+                    f,
+                    "An attribute specification declared that its form is zero,
                  but zero is reserved for null records"
+                )
             }
             Error::BadHasChildren => {
-                "The abbreviation's has-children byte was not one of
-                 `DW_CHILDREN_{yes,no}`"
+                write!(
+                    f,
+                    "The abbreviation's has-children byte was not one of
+                 `DW_CHILDREN_{{yes,no}}`"
+                )
             }
-            Error::UnknownForm(_) => "Found an unknown `DW_FORM_*` type",
+            Error::UnknownForm(_) => write!(f, "Found an unknown `DW_FORM_*` type"),
             Error::DuplicateAbbreviationCode => {
-                "Found an abbreviation code that has already been used"
+                write!(f, "Found an abbreviation code that has already been used")
             }
-            Error::UnknownReservedLength => "Found an unknown reserved length value",
-            Error::UnknownVersion(_) => "Found an unknown DWARF version",
-            Error::UnknownAbbreviation(_) => "Found a record with an unknown abbreviation code",
-            Error::UnexpectedEof(_) => "Hit the end of input before it was expected",
-            Error::UnknownLocListsEntry(_) => "Found an unknown location lists entry",
-            Error::UnknownRangeListsEntry(_) => "Found an unknown range lists entry",
-            Error::UnsupportedAddressSize(_) => "The specified address size is not supported",
-            Error::UnsupportedOffsetSize(_) => "The specified offset size is not supported",
+            Error::UnknownReservedLength => write!(f, "Found an unknown reserved length value"),
+            Error::UnknownVersion(_) => write!(f, "Found an unknown DWARF version"),
+            Error::UnknownAbbreviation(_) => {
+                write!(f, "Found a record with an unknown abbreviation code")
+            }
+            Error::UnexpectedEof(_) => write!(f, "Hit the end of input before it was expected"),
+            Error::UnknownLocListsEntry(_) => write!(f, "Found an unknown location lists entry"),
+            Error::UnknownRangeListsEntry(_) => write!(f, "Found an unknown range lists entry"),
+            Error::UnsupportedAddressSize(_) => {
+                write!(f, "The specified address size is not supported")
+            }
+            Error::UnsupportedOffsetSize(_) => {
+                write!(f, "The specified offset size is not supported")
+            }
             Error::MinimumInstructionLengthZero => {
-                "The minimum instruction length must not be zero."
+                write!(f, "The minimum instruction length must not be zero.")
             }
             Error::MaximumOperationsPerInstructionZero => {
-                "The maximum operations per instruction must not be zero."
+                write!(
+                    f,
+                    "The maximum operations per instruction must not be zero."
+                )
             }
-            Error::LineRangeZero => "The line range must not be zero.",
-            Error::OpcodeBaseZero => "The opcode base must not be zero.",
-            Error::BadUtf8 => "Found an invalid UTF-8 string.",
-            Error::NotCieId => "Expected to find the CIE ID, but found something else.",
-            Error::NotCiePointer => "Expected to find a CIE pointer, but found the CIE ID instead.",
-            Error::BadBranchTarget(_) => "Invalid branch target in DWARF expression",
+            Error::LineRangeZero => write!(f, "The line range must not be zero."),
+            Error::OpcodeBaseZero => write!(f, "The opcode base must not be zero."),
+            Error::BadUtf8 => write!(f, "Found an invalid UTF-8 string."),
+            Error::NotCieId => write!(f, "Expected to find the CIE ID, but found something else."),
+            Error::NotCiePointer => {
+                write!(
+                    f,
+                    "Expected to find a CIE pointer, but found the CIE ID instead.",
+                )
+            }
+            Error::BadBranchTarget(_) => write!(f, "Invalid branch target in DWARF expression"),
             Error::InvalidPushObjectAddress => {
-                "DW_OP_push_object_address used but no object address given"
+                write!(
+                    f,
+                    "DW_OP_push_object_address used but no object address given"
+                )
             }
-            Error::NotEnoughStackItems => "Not enough items on stack when evaluating expression",
-            Error::TooManyIterations => "Too many iterations to evaluate DWARF expression",
-            Error::InvalidExpression(_) => "Invalid opcode in DWARF expression",
-            Error::UnsupportedEvaluation => "Unsupported operation when evaluating expression",
+            Error::NotEnoughStackItems => {
+                write!(f, "Not enough items on stack when evaluating expression")
+            }
+            Error::TooManyIterations => {
+                write!(f, "Too many iterations to evaluate DWARF expression")
+            }
+            Error::InvalidExpression(_) => write!(f, "Invalid opcode in DWARF expression"),
+            Error::UnsupportedEvaluation => {
+                write!(f, "Unsupported operation when evaluating expression")
+            }
             Error::InvalidPiece => {
-                "DWARF expression has piece followed by non-piece expression at end"
+                write!(
+                    f,
+                    "DWARF expression has piece followed by non-piece expression at end"
+                )
             }
-            Error::InvalidExpressionTerminator(_) => "Expected DW_OP_piece or DW_OP_bit_piece",
-            Error::DivisionByZero => "Division or modulus by zero when evaluating expression",
-            Error::TypeMismatch => "Type mismatch when evaluating expression",
-            Error::IntegralTypeRequired => "Integral type expected when evaluating expression",
+            Error::InvalidExpressionTerminator(_) => {
+                write!(f, "Expected DW_OP_piece or DW_OP_bit_piece")
+            }
+            Error::DivisionByZero => {
+                write!(f, "Division or modulus by zero when evaluating expression")
+            }
+            Error::TypeMismatch => write!(f, "Type mismatch when evaluating expression"),
+            Error::IntegralTypeRequired => {
+                write!(f, "Integral type expected when evaluating expression")
+            }
             Error::UnsupportedTypeOperation => {
-                "An expression operation used types that are not supported"
+                write!(
+                    f,
+                    "An expression operation used types that are not supported"
+                )
             }
             Error::InvalidShiftExpression => {
-                "The shift value in an expression must be a non-negative integer."
+                write!(
+                    f,
+                    "The shift value in an expression must be a non-negative integer."
+                )
             }
             Error::InvalidDerefSize(_) => {
-                "The size of a deref expression must not be larger than the size of an address."
+                write!(
+                    f,
+                    "The size of a deref expression must not be larger than the size of an address."
+                )
             }
-            Error::UnknownCallFrameInstruction(_) => "An unknown DW_CFA_* instruction",
+            Error::UnknownCallFrameInstruction(_) => write!(f, "An unknown DW_CFA_* instruction"),
             Error::InvalidAddressRange => {
-                "The end of an address range must not be before the beginning."
+                write!(
+                    f,
+                    "The end of an address range must not be before the beginning."
+                )
             }
-            Error::AddressOverflow => "An address calculation overflowed.",
+            Error::AddressOverflow => write!(f, "An address calculation overflowed."),
             Error::CfiInstructionInInvalidContext => {
-                "Encountered a call frame instruction in a context in which it is not valid."
+                write!(
+                    f,
+                    "Encountered a call frame instruction in a context in which it is not valid."
+                )
             }
             Error::PopWithEmptyStack => {
-                "When evaluating call frame instructions, found a `DW_CFA_restore_state` stack pop \
+                write!(
+                    f,
+                    "When evaluating call frame instructions, found a `DW_CFA_restore_state` stack pop \
                  instruction, but the stack was empty, and had nothing to pop."
+                )
             }
-            Error::NoUnwindInfoForAddress => "Do not have unwind info for the given address.",
+            Error::NoUnwindInfoForAddress => {
+                write!(f, "Do not have unwind info for the given address.")
+            }
             Error::UnsupportedOffset => {
-                "An offset value was larger than the maximum supported value."
+                write!(
+                    f,
+                    "An offset value was larger than the maximum supported value."
+                )
             }
             Error::UnknownPointerEncoding(_) => {
-                "The given pointer encoding is either unknown or invalid."
+                write!(
+                    f,
+                    "The given pointer encoding is either unknown or invalid."
+                )
             }
-            Error::NoEntryAtGivenOffset => "Did not find an entry at the given offset.",
-            Error::OffsetOutOfBounds => "The given offset is out of bounds.",
-            Error::UnknownAugmentation => "Found an unknown CFI augmentation.",
+            Error::NoEntryAtGivenOffset => write!(f, "Did not find an entry at the given offset."),
+            Error::OffsetOutOfBounds => write!(f, "The given offset is out of bounds."),
+            Error::UnknownAugmentation => write!(f, "Found an unknown CFI augmentation."),
             Error::UnsupportedPointerEncoding => {
-                "We do not support the given pointer encoding yet."
+                write!(f, "We do not support the given pointer encoding yet.")
             }
-            Error::UnsupportedRegister(_) => "Registers larger than `u16` are not supported.",
+            Error::UnsupportedRegister(_) => {
+                write!(f, "Registers larger than `u16` are not supported.")
+            }
             Error::TooManyRegisterRules => {
-                "The CFI program defined more register rules than we have storage for."
+                write!(
+                    f,
+                    "The CFI program defined more register rules than we have storage for."
+                )
             }
             Error::StackFull => {
-                "Attempted to push onto the CFI stack, but it was already at full capacity."
+                write!(
+                    f,
+                    "Attempted to push onto the CFI stack, but it was already at full capacity."
+                )
             }
             Error::VariableLengthSearchTable => {
-                "The `.eh_frame_hdr` binary search table claims to be variable-length encoded, \
+                write!(
+                    f,
+                    "The `.eh_frame_hdr` binary search table claims to be variable-length encoded, \
                  which makes binary search impossible."
+                )
             }
-            Error::UnsupportedUnitType => "The `DW_UT_*` value for this unit is not supported yet",
-            Error::UnsupportedSegmentSize => "Nonzero segment size not supported yet",
+            Error::UnsupportedUnitType => {
+                write!(f, "The `DW_UT_*` value for this unit is not supported yet")
+            }
+            Error::UnsupportedSegmentSize => write!(f, "Nonzero segment size not supported yet"),
             Error::MissingUnitDie => {
-                "A compilation unit or type unit is missing its top level DIE."
+                write!(
+                    f,
+                    "A compilation unit or type unit is missing its top level DIE."
+                )
             }
             Error::MissingSplitUnit => {
-                "A split DWARF section does not contain the split compilation unit."
+                write!(
+                    f,
+                    "A split DWARF section does not contain the split compilation unit."
+                )
             }
-            Error::UnsupportedAttributeForm => "A DIE attribute used an unsupported form.",
-            Error::MissingFileEntryFormatPath => "Missing DW_LNCT_path in file entry format.",
+            Error::UnsupportedAttributeForm => {
+                write!(f, "A DIE attribute used an unsupported form.")
+            }
+            Error::MissingFileEntryFormatPath => {
+                write!(f, "Missing DW_LNCT_path in file entry format.")
+            }
             Error::ExpectedStringAttributeValue => {
-                "Expected an attribute value to be a string form."
+                write!(f, "Expected an attribute value to be a string form.")
             }
-            Error::InvalidImplicitConst => "DW_FORM_implicit_const used in an invalid context.",
-            Error::InvalidIndexSectionCount => "Invalid section count in `.dwp` index.",
-            Error::InvalidIndexSlotCount => "Invalid slot count in `.dwp` index.",
-            Error::InvalidIndexRow => "Invalid hash row in `.dwp` index.",
-            Error::UnknownIndexSection(_) => "Unknown section type in `.dwp` index.",
-            Error::UnknownIndexSectionV2(_) => "Unknown section type in version 2 `.dwp` index.",
-            Error::InvalidMacinfoType(_) => "Invalid macinfo type in `.debug_macinfo`.",
-            Error::InvalidMacroType(_) => "Invalid macro type in `.debug_macro`.",
+            Error::InvalidImplicitConst => {
+                write!(f, "DW_FORM_implicit_const used in an invalid context.")
+            }
+            Error::InvalidIndexSectionCount => write!(f, "Invalid section count in `.dwp` index."),
+            Error::InvalidIndexSlotCount => write!(f, "Invalid slot count in `.dwp` index."),
+            Error::InvalidIndexRow => write!(f, "Invalid hash row in `.dwp` index."),
+            Error::UnknownIndexSection(_) => write!(f, "Unknown section type in `.dwp` index."),
+            Error::UnknownIndexSectionV2(_) => {
+                write!(f, "Unknown section type in version 2 `.dwp` index.")
+            }
+            Error::InvalidMacinfoType(_) => write!(f, "Invalid macinfo type in `.debug_macinfo`."),
+            Error::InvalidMacroType(_) => write!(f, "Invalid macro type in `.debug_macro`."),
             Error::UnsupportedOpcodeOperandsTable => {
-                "The optional `opcode_operands_table` in `.debug_macro` is currently not supported."
+                write!(
+                    f,
+                    "The optional `opcode_operands_table` in `.debug_macro` is currently not supported."
+                )
             }
             Error::InvalidNameAttributeIndex(_) => {
-                "Invalid index in a `.debug_names` attribute value."
+                write!(f, "Invalid index in a `.debug_names` attribute value.")
             }
         }
     }
