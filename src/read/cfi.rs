@@ -656,7 +656,7 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
         let offset = UnwindOffset::into(offset);
         let input = &mut self.section().clone();
         input.skip(offset)?;
-        CommonInformationEntry::parse(bases, self, input)
+        CommonInformationEntry::parse(bases, self, input, offset)
     }
 
     /// Parse the `PartialFrameDescriptionEntry` at the given offset.
@@ -668,7 +668,7 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
         let offset = UnwindOffset::into(offset);
         let input = &mut self.section().clone();
         input.skip(offset)?;
-        PartialFrameDescriptionEntry::parse_partial(self, bases, input)
+        PartialFrameDescriptionEntry::parse_partial(self, bases, input, offset)
     }
 
     /// Parse the `FrameDescriptionEntry` at the given offset.
@@ -1103,7 +1103,7 @@ where
     } else {
         let cie_offset = R::Offset::from_u64(cie_id_or_offset)?;
         let cie_offset = match section.resolve_cie_offset(cie_offset_base, cie_offset) {
-            None => return Err(Error::OffsetOutOfBounds),
+            None => return Err(Error::OffsetOutOfBounds(cie_id_or_offset)),
             Some(cie_offset) => cie_offset,
         };
 
@@ -1316,11 +1316,12 @@ impl<R: Reader> CommonInformationEntry<R> {
         bases: &BaseAddresses,
         section: &Section,
         input: &mut R,
+        offset: R::Offset,
     ) -> Result<CommonInformationEntry<R>> {
         match parse_cfi_entry(bases, section, input)? {
             Some(CieOrFde::Cie(cie)) => Ok(cie),
-            Some(CieOrFde::Fde(_)) => Err(Error::NotCieId),
-            None => Err(Error::NoEntryAtGivenOffset),
+            Some(CieOrFde::Fde(_)) => Err(Error::NotCieId(offset.into_u64())),
+            None => Err(Error::NoEntryAtGivenOffset(offset.into_u64())),
         }
     }
 
@@ -1348,7 +1349,7 @@ impl<R: Reader> CommonInformationEntry<R> {
             let address_size = rest.read_address_size()?;
             let segment_size = rest.read_u8()?;
             if segment_size != 0 {
-                return Err(Error::UnsupportedSegmentSize);
+                return Err(Error::UnsupportedSegmentSize(segment_size));
             }
             address_size
         } else {
@@ -1543,11 +1544,12 @@ where
         section: &Section,
         bases: &'bases BaseAddresses,
         input: &mut R,
+        offset: R::Offset,
     ) -> Result<PartialFrameDescriptionEntry<'bases, Section, R>> {
         match parse_cfi_entry(bases, section, input)? {
-            Some(CieOrFde::Cie(_)) => Err(Error::NotFdePointer),
+            Some(CieOrFde::Cie(_)) => Err(Error::NotFdePointer(offset.into_u64())),
             Some(CieOrFde::Fde(partial)) => Ok(partial),
-            None => Err(Error::NoEntryAtGivenOffset),
+            None => Err(Error::NoEntryAtGivenOffset(offset.into_u64())),
         }
     }
 
@@ -3780,7 +3782,7 @@ mod tests {
         let bases = Default::default();
         match parse_cfi_entry(&bases, &section, input) {
             Ok(Some(CieOrFde::Fde(partial))) => partial.parse(get_cie),
-            Ok(_) => Err(Error::NoEntryAtGivenOffset),
+            Ok(_) => Err(Error::NoEntryAtGivenOffset(0)),
             Err(e) => Err(e),
         }
     }
@@ -3984,7 +3986,7 @@ mod tests {
         debug_frame.set_address_size(address_size);
         let input = &mut EndianSlice::new(&section, E::default());
         let bases = Default::default();
-        let result = CommonInformationEntry::parse(&bases, &debug_frame, input);
+        let result = CommonInformationEntry::parse(&bases, &debug_frame, input, 0);
         let result = result.map(|cie| (*input, cie)).map_eof(&section);
         assert_eq!(result, expected);
     }
@@ -4038,7 +4040,7 @@ mod tests {
             .B32(4)
             // Not the CIE Id.
             .B32(0xbad1_bad2);
-        assert_parse_cie(kind, section, 8, Err(Error::NotCieId));
+        assert_parse_cie(kind, section, 8, Err(Error::NotCieId(0)));
     }
 
     #[test]
@@ -4179,7 +4181,8 @@ mod tests {
             CommonInformationEntry::parse(
                 &bases,
                 &debug_frame,
-                &mut EndianSlice::new(&contents, LittleEndian)
+                &mut EndianSlice::new(&contents, LittleEndian),
+                0,
             )
             .map_eof(&contents),
             Err(Error::UnexpectedEof(ReaderOffsetId(4)))
@@ -6691,7 +6694,7 @@ mod tests {
 
         assert_eq!(
             eh_frame.cie_from_offset(&bases, EhFrameOffset(0)),
-            Err(Error::NoEntryAtGivenOffset)
+            Err(Error::NoEntryAtGivenOffset(0))
         );
     }
 
@@ -6713,7 +6716,7 @@ mod tests {
 
         assert_eq!(
             debug_frame.cie_from_offset(&bases, DebugFrameOffset(0)),
-            Err(Error::NoEntryAtGivenOffset)
+            Err(Error::NoEntryAtGivenOffset(0))
         );
     }
 
@@ -6763,7 +6766,7 @@ mod tests {
         let buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
         assert_eq!(
             resolve_cie_offset(&buf, buf.len() + 4 + 2),
-            Err(Error::OffsetOutOfBounds)
+            Err(Error::OffsetOutOfBounds(buf.len() as u64 + 4 + 2))
         );
     }
 
@@ -6772,7 +6775,7 @@ mod tests {
         let buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
         assert_eq!(
             resolve_cie_offset(&buf, usize::MAX),
-            Err(Error::OffsetOutOfBounds)
+            Err(Error::OffsetOutOfBounds(u32::MAX as u64))
         );
     }
 
@@ -6853,7 +6856,7 @@ mod tests {
         let section = Section::with_endian(kind.endian())
             .cie(kind, None, &mut cie)
             .mark(&end_of_cie)
-            .fde(kind, 99_999_999_999_999, &mut fde);
+            .fde(kind, 99_999_999, &mut fde);
 
         section.start().set_const(0);
         let section = section.get_contents().unwrap();
@@ -6865,7 +6868,7 @@ mod tests {
             &mut section.range_from(end_of_cie.value().unwrap() as usize..),
             UnwindSection::cie_from_offset,
         );
-        assert_eq!(result, Err(Error::OffsetOutOfBounds));
+        assert_eq!(result, Err(Error::OffsetOutOfBounds(99_999_999)));
     }
 
     #[test]

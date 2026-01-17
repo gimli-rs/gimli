@@ -525,7 +525,7 @@ pub trait Reader: Debug + Clone {
             let val = self.read_u64().and_then(Self::Offset::from_u64)?;
             Ok((val, Format::Dwarf64))
         } else {
-            Err(Error::UnknownReservedLength)
+            Err(Error::UnknownReservedLength(val))
         }
     }
 

@@ -269,17 +269,17 @@ pub enum Error {
     AttributeFormZero,
     /// The abbreviation's has-children byte was not one of
     /// `DW_CHILDREN_{yes,no}`.
-    BadHasChildren,
+    InvalidAbbreviationChildren(constants::DwChildren),
     /// Found an unknown `DW_FORM_*` type.
     UnknownForm(constants::DwForm),
     /// Found an abbreviation code that has already been used.
-    DuplicateAbbreviationCode,
+    DuplicateAbbreviationCode(u64),
     /// Found an unknown reserved length value.
-    UnknownReservedLength,
+    UnknownReservedLength(u32),
     /// Found an unknown DWARF version.
     UnknownVersion(u64),
-    /// Found a record with an unknown abbreviation code.
-    UnknownAbbreviation(u64),
+    /// Found an entry with an invalid abbreviation code.
+    InvalidAbbreviationCode(u64),
     /// Hit the end of input before it was expected.
     UnexpectedEof(ReaderOffsetId),
     /// Found an unknown location-lists format.
@@ -301,9 +301,9 @@ pub enum Error {
     /// Found an invalid UTF-8 string.
     BadUtf8,
     /// Expected to find the CIE ID, but found something else.
-    NotCieId,
+    NotCieId(u64),
     /// Expected to find a pointer to an FDE, but found a CIE instead.
-    NotFdePointer,
+    NotFdePointer(u64),
     /// Invalid branch target for a DW_OP_bra or DW_OP_skip.
     BadBranchTarget(u64),
     /// DW_OP_push_object_address used but no address passed in.
@@ -358,9 +358,9 @@ pub enum Error {
     /// The given pointer encoding is either unknown or invalid.
     UnknownPointerEncoding(constants::DwEhPe),
     /// Did not find an entry at the given offset.
-    NoEntryAtGivenOffset,
+    NoEntryAtGivenOffset(u64),
     /// The given offset is out of bounds.
-    OffsetOutOfBounds,
+    OffsetOutOfBounds(u64),
     /// Found an unknown CFI augmentation.
     UnknownAugmentation,
     /// We do not support the given pointer encoding yet.
@@ -376,9 +376,9 @@ pub enum Error {
     /// which makes binary search impossible.
     VariableLengthSearchTable,
     /// The `DW_UT_*` value for this unit is not supported yet.
-    UnsupportedUnitType,
+    UnsupportedUnitType(constants::DwUt),
     /// Nonzero segment selector sizes aren't supported yet.
-    UnsupportedSegmentSize,
+    UnsupportedSegmentSize(u8),
     /// A compilation unit or type unit is missing its top level DIE.
     MissingUnitDie,
     /// A split DWARF section does not contain the split compilation unit.
@@ -392,11 +392,11 @@ pub enum Error {
     /// `DW_FORM_implicit_const` used in an invalid context.
     InvalidImplicitConst,
     /// Invalid section count in `.dwp` index.
-    InvalidIndexSectionCount,
+    UnsupportedIndexSectionCount(u32),
     /// Invalid slot count in `.dwp` index.
-    InvalidIndexSlotCount,
-    /// Invalid hash row in `.dwp` index.
-    InvalidIndexRow,
+    InvalidIndexSlotCount(u32),
+    /// Invalid row index in `.dwp` index.
+    InvalidIndexRow(u32),
     /// Unknown section type in `.dwp` index.
     UnknownIndexSection(constants::DwSect),
     /// Unknown section type in version 2 `.dwp` index.
@@ -441,16 +441,16 @@ impl fmt::Display for Error {
             Error::AttributeFormZero => {
                 write!(f, "invalid attribute form: zero")
             }
-            Error::BadHasChildren => {
-                write!(f, "invalid abbreviation children")
+            Error::InvalidAbbreviationChildren(val) => {
+                write!(f, "invalid abbreviation children: 0x{:x}", val.0)
             }
             Error::UnknownForm(val) => write!(f, "unknown attribute form: 0x{:x}", val.0),
-            Error::DuplicateAbbreviationCode => {
-                write!(f, "duplicate abbreviation code")
+            Error::DuplicateAbbreviationCode(val) => {
+                write!(f, "duplicate abbreviation code: 0x{val:x}")
             }
-            Error::UnknownReservedLength => write!(f, "unknown reserved initial length"),
+            Error::UnknownReservedLength(val) => write!(f, "unknown reserved length: 0x{val:x}"),
             Error::UnknownVersion(version) => write!(f, "unknown DWARF version: {version}"),
-            Error::UnknownAbbreviation(val) => {
+            Error::InvalidAbbreviationCode(val) => {
                 write!(f, "invalid abbreviation code: 0x{val:x}")
             }
             Error::UnexpectedEof(_) => write!(f, "unexpected end of input"),
@@ -475,9 +475,9 @@ impl fmt::Display for Error {
             Error::LineRangeZero => write!(f, "invalid line range: zero"),
             Error::OpcodeBaseZero => write!(f, "invalid line opcode base: zero"),
             Error::BadUtf8 => write!(f, "invalid UTF-8"),
-            Error::NotCieId => write!(f, "no CIE at offset"),
-            Error::NotFdePointer => {
-                write!(f, "no FDE at offset")
+            Error::NotCieId(val) => write!(f, "no CIE at offset: 0x{val:x}"),
+            Error::NotFdePointer(val) => {
+                write!(f, "no FDE at offset: 0x{val:x}")
             }
             Error::BadBranchTarget(_) => write!(f, "invalid expression branch target"),
             Error::InvalidPushObjectAddress => {
@@ -537,8 +537,8 @@ impl fmt::Display for Error {
             Error::UnknownPointerEncoding(val) => {
                 write!(f, "unknown pointer encoding: 0x{:x}", val.0)
             }
-            Error::NoEntryAtGivenOffset => write!(f, "no entry at offset"),
-            Error::OffsetOutOfBounds => write!(f, "invalid offset"),
+            Error::NoEntryAtGivenOffset(val) => write!(f, "no entry at offset: 0x{val:x}"),
+            Error::OffsetOutOfBounds(val) => write!(f, "invalid offset: 0x{val:x}"),
             Error::UnknownAugmentation => write!(f, "unknown CFI augmentation"),
             Error::UnsupportedPointerEncoding => {
                 write!(f, "unsupported pointer encoding")
@@ -555,10 +555,10 @@ impl fmt::Display for Error {
             Error::VariableLengthSearchTable => {
                 write!(f, "invalid pointer encoding for search")
             }
-            Error::UnsupportedUnitType => {
-                write!(f, "unknown unit type")
+            Error::UnsupportedUnitType(val) => {
+                write!(f, "unknown unit type: 0x{:x}", val.0)
             }
-            Error::UnsupportedSegmentSize => write!(f, "unsupported segment size"),
+            Error::UnsupportedSegmentSize(val) => write!(f, "unsupported segment size: {val}"),
             Error::MissingUnitDie => {
                 write!(f, "missing root DIE")
             }
@@ -577,9 +577,11 @@ impl fmt::Display for Error {
             Error::InvalidImplicitConst => {
                 write!(f, "invalid implicit const form")
             }
-            Error::InvalidIndexSectionCount => write!(f, "unsupported DWP section count"),
-            Error::InvalidIndexSlotCount => write!(f, "invalid DWP slot count"),
-            Error::InvalidIndexRow => write!(f, "invalid DWP unit index"),
+            Error::UnsupportedIndexSectionCount(val) => {
+                write!(f, "unsupported DWP section count: {val}")
+            }
+            Error::InvalidIndexSlotCount(val) => write!(f, "invalid DWP slot count: 0x{:x}", val),
+            Error::InvalidIndexRow(val) => write!(f, "invalid DWP row index: 0x{:x}", val),
             Error::UnknownIndexSection(val) => write!(f, "unknown DWP section type: 0x{:x}", val.0),
             Error::UnknownIndexSectionV2(val) => {
                 write!(f, "unknown DWP v2 section type: 0x{:x}", val.0)
@@ -745,7 +747,7 @@ mod tests {
 
         let input = &mut EndianSlice::new(&buf, LittleEndian);
         match input.read_initial_length() {
-            Err(Error::UnknownReservedLength) => {}
+            Err(Error::UnknownReservedLength(0xffff_fffe)) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }

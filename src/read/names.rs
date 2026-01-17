@@ -557,7 +557,7 @@ impl<R: Reader> NameIndex<R> {
         let mut entries = self.entry_pool.clone();
         entries.skip(offset.0)?;
         NameEntry::parse(&mut entries, offset, &self.abbreviations)?
-            .ok_or(Error::NoEntryAtGivenOffset)
+            .ok_or(Error::NoEntryAtGivenOffset(offset.0.into_u64()))
     }
 
     /// Get the abbreviation table for name entries in this name index.
@@ -880,7 +880,7 @@ impl<R: Reader> NameEntry<R> {
             return Ok(None);
         }
         let Some(abbrev) = abbreviations.get(abbrev_code) else {
-            return Err(Error::UnknownAbbreviation(abbrev_code));
+            return Err(Error::InvalidAbbreviationCode(abbrev_code));
         };
         let tag = abbrev.tag();
         let specs = abbrev.attributes();
@@ -1583,7 +1583,10 @@ mod tests {
             );
 
             let mut entries = name_index.name_entries(name).unwrap();
-            assert!(matches!(entries.next(), Err(Error::UnknownAbbreviation(4))));
+            assert!(matches!(
+                entries.next(),
+                Err(Error::InvalidAbbreviationCode(4))
+            ));
             assert!(matches!(entries.next(), Ok(None)));
 
             // No entries

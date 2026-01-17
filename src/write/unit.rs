@@ -1600,7 +1600,7 @@ pub(crate) mod convert {
     use crate::common::{
         DwoId, LineEncoding, LocationListsOffset, RangeListsOffset, UnitSectionOffset,
     };
-    use crate::read::{self, Reader};
+    use crate::read::{self, Reader, ReaderOffset};
     use crate::write::{
         self, ConvertError, ConvertLineProgram, ConvertResult, Dwarf, LocationList, RangeList,
     };
@@ -3068,7 +3068,7 @@ pub(crate) mod convert {
             let mut read_entry = read::DebuggingInformationEntry::null();
             if !read_entries.read_entry(&mut read_entry)? {
                 // Null entry.
-                return Err(read::Error::NoEntryAtGivenOffset.into());
+                return Err(read::Error::NoEntryAtGivenOffset(offset.0.into_u64()).into());
             };
 
             let mut entry = ConvertUnitEntry {
