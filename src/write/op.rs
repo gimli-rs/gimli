@@ -31,6 +31,14 @@ impl Expression {
         }
     }
 
+    /// If the expression consists only of raw bytecode, then return that bytecode.
+    pub fn as_raw(&self) -> Option<&[u8]> {
+        match &self.operations[..] {
+            [Operation::Raw(bytecode)] => Some(bytecode),
+            _ => None,
+        }
+    }
+
     /// Add an operation to the expression.
     ///
     /// This should only be used for operations that have no explicit operands.
@@ -1775,5 +1783,14 @@ mod tests {
         // Writing the DWARF should fail.
         let mut sections = Sections::new(EndianVec::new(LittleEndian));
         assert_eq!(dwarf.write(&mut sections), Err(Error::InvalidReference));
+    }
+
+    #[test]
+    fn test_expression_as_raw() {
+        assert_eq!(Expression::new().as_raw(), None);
+        assert_eq!(Expression::raw(b"1234".into()).as_raw(), Some(&b"1234"[..]));
+        let mut expression = Expression::raw(b"1234".into());
+        expression.op_constu(1);
+        assert_eq!(expression.as_raw(), None);
     }
 }
