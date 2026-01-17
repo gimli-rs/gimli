@@ -52,7 +52,7 @@ fn parse_header<R: Reader>(input: &mut R) -> Result<ListsHeader> {
     let address_size = input.read_address_size()?;
     let segment_selector_size = input.read_u8()?;
     if segment_selector_size != 0 {
-        return Err(Error::UnsupportedSegmentSize);
+        return Err(Error::UnsupportedSegmentSize(segment_selector_size));
     }
     let offset_entry_count = input.read_u32()?;
 

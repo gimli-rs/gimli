@@ -776,7 +776,7 @@ impl<R: Reader> Dwarf<R> {
             },
             _ => {}
         }
-        err.description().into()
+        format!("{}", err)
     }
 
     /// Return a fallible iterator over the macro information from `.debug_macinfo` for the given offset.
@@ -1725,7 +1725,7 @@ mod tests {
             Err(e) => {
                 assert_eq!(
                     dwarf.format_error(e),
-                    "Hit the end of input before it was expected at .debug_str+0x1"
+                    "unexpected end of input at .debug_str+0x1"
                 );
             }
         }
@@ -1734,10 +1734,10 @@ mod tests {
             Err(e) => {
                 assert_eq!(
                     dwarf.format_error(e),
-                    "Hit the end of input before it was expected at .debug_str(sup)+0x1"
+                    "unexpected end of input at .debug_str(sup)+0x1"
                 );
             }
         }
-        assert_eq!(dwarf.format_error(Error::Io), Error::Io.description());
+        assert_eq!(dwarf.format_error(Error::Io), format!("{}", Error::Io));
     }
 }
