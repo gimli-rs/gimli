@@ -843,21 +843,27 @@ pub enum AttributeValue {
     /// An implicit signed integer constant.
     ///
     /// The constant is stored in the abbreviation instead of being repeated
-    /// for each DIE using the abbreviation.
+    /// for each DIE using it.
     ///
-    /// This may be used instead of any value that is a constant, such as
+    /// This may be used for any attribute value that is a constant, such as
     /// [`AttributeValue::Language`], but you need to specify the raw value
     /// here instead of using a typed constant.
+    ///
+    /// This is treated as `Sdata` for DWARF version < 5.
     ImplicitConst(i64),
 
     /// "The information bytes contain a DWARF expression (see Section 2.5) or
     /// location description (see Section 2.6)."
+    ///
+    /// This is treated as `Block` for DWARF version < 4.
     Exprloc(Expression),
 
     /// A boolean that indicates presence or absence of the attribute.
     Flag(bool),
 
     /// An attribute that is always present.
+    ///
+    /// This is treated as `Flag(true)` for DWARF version < 4.
     FlagPresent,
 
     /// A reference to a `DebuggingInformationEntry` in this unit.
@@ -969,7 +975,6 @@ impl AttributeValue {
         // - FW_FORM_block1/block2/block4
         // - DW_FORM_str/strx1/strx2/strx3/strx4
         // - DW_FORM_addrx/addrx1/addrx2/addrx3/addrx4
-        // - DW_FORM_data16
         // - DW_FORM_line_strp
         // - DW_FORM_loclistx
         // - DW_FORM_rnglistx
@@ -981,9 +986,21 @@ impl AttributeValue {
             AttributeValue::Data4(_) => constants::DW_FORM_data4,
             AttributeValue::Data8(_) => constants::DW_FORM_data8,
             AttributeValue::Data16(_) => constants::DW_FORM_data16,
-            AttributeValue::Exprloc(_) => constants::DW_FORM_exprloc,
+            AttributeValue::Exprloc(_) => {
+                if encoding.version >= 4 {
+                    constants::DW_FORM_exprloc
+                } else {
+                    constants::DW_FORM_block
+                }
+            }
             AttributeValue::Flag(_) => constants::DW_FORM_flag,
-            AttributeValue::FlagPresent => constants::DW_FORM_flag_present,
+            AttributeValue::FlagPresent => {
+                if encoding.version >= 4 {
+                    constants::DW_FORM_flag_present
+                } else {
+                    constants::DW_FORM_flag
+                }
+            }
             AttributeValue::UnitRef(_) => {
                 // Using a fixed size format lets us write a placeholder before we know
                 // the value.
@@ -1035,7 +1052,11 @@ impl AttributeValue {
             | AttributeValue::Udata(_) => constants::DW_FORM_udata,
             AttributeValue::Sdata(_) => constants::DW_FORM_sdata,
             AttributeValue::ImplicitConst(val) => {
-                return Ok((constants::DW_FORM_implicit_const, Some(val)));
+                if encoding.version >= 5 {
+                    return Ok((constants::DW_FORM_implicit_const, Some(val)));
+                } else {
+                    constants::DW_FORM_sdata
+                }
             }
         };
         Ok((form, None))
@@ -1080,16 +1101,25 @@ impl AttributeValue {
                 debug_assert_form!(constants::DW_FORM_sdata);
                 sleb128_size(val)
             }
-            AttributeValue::ImplicitConst(_) => {
-                debug_assert_form!(constants::DW_FORM_implicit_const);
-                0
+            AttributeValue::ImplicitConst(val) => {
+                if unit.version() >= 5 {
+                    debug_assert_form!(constants::DW_FORM_implicit_const);
+                    0
+                } else {
+                    debug_assert_form!(constants::DW_FORM_sdata);
+                    sleb128_size(val)
+                }
             }
             AttributeValue::Udata(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
                 uleb128_size(val)
             }
             AttributeValue::Exprloc(ref val) => {
-                debug_assert_form!(constants::DW_FORM_exprloc);
+                if unit.version() >= 4 {
+                    debug_assert_form!(constants::DW_FORM_exprloc);
+                } else {
+                    debug_assert_form!(constants::DW_FORM_block);
+                }
                 let size = val.size(unit.encoding(), Some(offsets))?;
                 uleb128_size(size as u64) + size
             }
@@ -1098,8 +1128,13 @@ impl AttributeValue {
                 1
             }
             AttributeValue::FlagPresent => {
-                debug_assert_form!(constants::DW_FORM_flag_present);
-                0
+                if unit.version() >= 4 {
+                    debug_assert_form!(constants::DW_FORM_flag_present);
+                    0
+                } else {
+                    debug_assert_form!(constants::DW_FORM_flag);
+                    1
+                }
             }
             AttributeValue::UnitRef(_) => {
                 match unit.format() {
@@ -1281,15 +1316,24 @@ impl AttributeValue {
                 debug_assert_form!(constants::DW_FORM_sdata);
                 w.write_sleb128(val)?;
             }
-            AttributeValue::ImplicitConst(_) => {
-                debug_assert_form!(constants::DW_FORM_implicit_const);
+            AttributeValue::ImplicitConst(val) => {
+                if unit.version() >= 5 {
+                    debug_assert_form!(constants::DW_FORM_implicit_const);
+                } else {
+                    debug_assert_form!(constants::DW_FORM_sdata);
+                    w.write_sleb128(val)?;
+                }
             }
             AttributeValue::Udata(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
                 w.write_uleb128(val)?;
             }
             AttributeValue::Exprloc(ref val) => {
-                debug_assert_form!(constants::DW_FORM_exprloc);
+                if unit.version() >= 4 {
+                    debug_assert_form!(constants::DW_FORM_exprloc);
+                } else {
+                    debug_assert_form!(constants::DW_FORM_block);
+                }
                 w.write_uleb128(val.size(unit.encoding(), Some(offsets))? as u64)?;
                 val.write(
                     &mut w.0,
@@ -1303,7 +1347,12 @@ impl AttributeValue {
                 w.write_u8(val as u8)?;
             }
             AttributeValue::FlagPresent => {
-                debug_assert_form!(constants::DW_FORM_flag_present);
+                if unit.version() >= 4 {
+                    debug_assert_form!(constants::DW_FORM_flag_present);
+                } else {
+                    debug_assert_form!(constants::DW_FORM_flag);
+                    w.write_u8(1)?;
+                }
             }
             AttributeValue::UnitRef(id) => {
                 match unit.format() {
@@ -3423,7 +3472,7 @@ mod tests {
                     dwarf.line_strings.add("dummy line string");
                     let line_string_id = dwarf.line_strings.add(line_string_data);
 
-                    let attributes = &[
+                    let mut attributes = vec![
                         (
                             constants::DW_AT_name,
                             AttributeValue::Address(Address::Constant(0x1234)),
@@ -3470,24 +3519,9 @@ mod tests {
                             read::AttributeValue::Udata(0x1234),
                         ),
                         (
-                            constants::DW_AT_language,
-                            AttributeValue::ImplicitConst(0x12),
-                            read::AttributeValue::Sdata(0x12),
-                        ),
-                        (
-                            constants::DW_AT_name,
-                            AttributeValue::Exprloc(expression.clone()),
-                            read::AttributeValue::Exprloc(read_expression),
-                        ),
-                        (
                             constants::DW_AT_name,
                             AttributeValue::Flag(false),
                             read::AttributeValue::Flag(false),
-                        ),
-                        (
-                            constants::DW_AT_name,
-                            AttributeValue::FlagPresent,
-                            read::AttributeValue::Flag(true),
                         ),
                         (
                             constants::DW_AT_name,
@@ -3580,13 +3614,58 @@ mod tests {
                             read::AttributeValue::Udata(0x12),
                         ),
                     ];
+                    let mut attributes2 = Vec::new();
+                    if version >= 4 {
+                        attributes.push((
+                            constants::DW_AT_location,
+                            AttributeValue::Exprloc(expression.clone()),
+                            read::AttributeValue::Exprloc(read_expression),
+                        ));
+                    } else {
+                        attributes.push((
+                            constants::DW_AT_location,
+                            AttributeValue::Exprloc(expression.clone()),
+                            read::AttributeValue::Block(read_expression.0),
+                        ));
+                    }
+                    if version >= 4 {
+                        attributes.push((
+                            constants::DW_AT_name,
+                            AttributeValue::FlagPresent,
+                            read::AttributeValue::Flag(true),
+                        ));
+                    } else {
+                        attributes2.push((
+                            constants::DW_AT_name,
+                            AttributeValue::FlagPresent,
+                            read::AttributeValue::Flag(true),
+                            AttributeValue::Flag(true),
+                        ));
+                    };
+                    if version >= 5 {
+                        attributes.push((
+                            constants::DW_AT_language,
+                            AttributeValue::ImplicitConst(0x12),
+                            read::AttributeValue::Sdata(0x12),
+                        ));
+                    } else {
+                        attributes2.push((
+                            constants::DW_AT_language,
+                            AttributeValue::ImplicitConst(0x12),
+                            read::AttributeValue::Sdata(0x12),
+                            AttributeValue::Language(constants::DwLang(0x12)),
+                        ));
+                    }
 
                     let mut add_attribute = |name, value| {
                         let entry_id = unit.add(unit.root(), constants::DW_TAG_subprogram);
                         let entry = unit.get_mut(entry_id);
                         entry.set(name, value);
                     };
-                    for (name, value, _) in attributes {
+                    for (name, value, _) in &attributes {
+                        add_attribute(*name, value.clone());
+                    }
+                    for (name, value, _, _) in &attributes2 {
                         add_attribute(*name, value.clone());
                     }
                     add_attribute(
@@ -3618,7 +3697,19 @@ mod tests {
                         let entry = read_entries.next_dfs().unwrap().unwrap();
                         *entry.attr(name).unwrap()
                     };
-                    for (name, _, expect_value) in attributes {
+                    for (name, _, expect_value) in &attributes {
+                        let read_value = &get_attribute(*name).raw_value();
+                        // read::AttributeValue is invariant in the lifetime of R.
+                        // The lifetimes here are all okay, so transmute it.
+                        let read_value = unsafe {
+                            mem::transmute::<
+                                &read::AttributeValue<read::EndianSlice<'_, LittleEndian>>,
+                                &read::AttributeValue<read::EndianSlice<'_, LittleEndian>>,
+                            >(read_value)
+                        };
+                        assert_eq!(read_value, expect_value);
+                    }
+                    for (name, _, expect_value, _) in &attributes2 {
                         let read_value = &get_attribute(*name).raw_value();
                         // read::AttributeValue is invariant in the lifetime of R.
                         // The lifetimes here are all okay, so transmute it.
@@ -3685,7 +3776,11 @@ mod tests {
                         let convert_entry = convert_unit.get(*convert_entries.next().unwrap());
                         convert_entry.get(name).unwrap()
                     };
-                    for (name, attr, _) in attributes {
+                    for (name, attr, _) in &attributes {
+                        let convert_attr = get_convert_attr(*name);
+                        assert_eq!(convert_attr, attr);
+                    }
+                    for (name, _, _, attr) in &attributes2 {
                         let convert_attr = get_convert_attr(*name);
                         assert_eq!(convert_attr, attr);
                     }
