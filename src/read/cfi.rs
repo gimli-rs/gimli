@@ -656,7 +656,7 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
         let offset = UnwindOffset::into(offset);
         let input = &mut self.section().clone();
         input.skip(offset)?;
-        CommonInformationEntry::parse(bases, self, input)
+        CommonInformationEntry::parse(self, bases, input)
     }
 
     /// Parse the `PartialFrameDescriptionEntry` at the given offset.
@@ -1011,7 +1011,7 @@ where
                 return Ok(None);
             }
 
-            match parse_cfi_entry(self.bases, &self.section, &mut self.input) {
+            match parse_cfi_entry(&self.section, self.bases, &mut self.input) {
                 Ok(Some(entry)) => return Ok(Some(entry)),
                 Err(e) => {
                     self.input.empty();
@@ -1076,10 +1076,45 @@ where
 }
 
 fn parse_cfi_entry<'bases, Section, R>(
-    bases: &'bases BaseAddresses,
     section: &Section,
+    bases: &'bases BaseAddresses,
     input: &mut R,
 ) -> Result<Option<CieOrFde<'bases, Section, R>>>
+where
+    R: Reader,
+    Section: UnwindSection<R>,
+{
+    let Some(prefix) = parse_cfi_entry_prefix(section, input)? else {
+        return Ok(None);
+    };
+
+    if Section::is_cie(prefix.format, prefix.cie_id_or_offset) {
+        let cie = CommonInformationEntry::from_prefix(section, bases, prefix)?;
+        Ok(Some(CieOrFde::Cie(cie)))
+    } else {
+        let fde = PartialFrameDescriptionEntry::from_prefix(section, bases, prefix)?;
+        Ok(Some(CieOrFde::Fde(fde)))
+    }
+}
+
+/// The common prefix of a CIE or FDE.
+#[derive(Clone, Debug)]
+struct CfiEntryPrefix<R>
+where
+    R: Reader,
+{
+    offset: R::Offset,
+    length: R::Offset,
+    format: Format,
+    cie_offset_base: R::Offset,
+    cie_id_or_offset: u64,
+    rest: R,
+}
+
+fn parse_cfi_entry_prefix<Section, R>(
+    section: &Section,
+    input: &mut R,
+) -> Result<Option<CfiEntryPrefix<R>>>
 where
     R: Reader,
     Section: UnwindSection<R>,
@@ -1097,28 +1132,14 @@ where
         CieOffsetEncoding::U64 => rest.read_u64()?,
     };
 
-    if Section::is_cie(format, cie_id_or_offset) {
-        let cie = CommonInformationEntry::parse_rest(offset, length, format, bases, section, rest)?;
-        Ok(Some(CieOrFde::Cie(cie)))
-    } else {
-        let cie_offset = R::Offset::from_u64(cie_id_or_offset)?;
-        let cie_offset = match section.resolve_cie_offset(cie_offset_base, cie_offset) {
-            None => return Err(Error::OffsetOutOfBounds),
-            Some(cie_offset) => cie_offset,
-        };
-
-        let fde = PartialFrameDescriptionEntry {
-            offset,
-            length,
-            format,
-            cie_offset: cie_offset.into(),
-            rest,
-            section: section.clone(),
-            bases,
-        };
-
-        Ok(Some(CieOrFde::Fde(fde)))
-    }
+    Ok(Some(CfiEntryPrefix {
+        offset,
+        length,
+        format,
+        cie_offset_base,
+        cie_id_or_offset,
+        rest,
+    }))
 }
 
 /// We support the z-style augmentation [defined by `.eh_frame`][ehframe].
@@ -1313,25 +1334,25 @@ where
 
 impl<R: Reader> CommonInformationEntry<R> {
     fn parse<Section: UnwindSection<R>>(
-        bases: &BaseAddresses,
         section: &Section,
+        bases: &BaseAddresses,
         input: &mut R,
     ) -> Result<CommonInformationEntry<R>> {
-        match parse_cfi_entry(bases, section, input)? {
-            Some(CieOrFde::Cie(cie)) => Ok(cie),
-            Some(CieOrFde::Fde(_)) => Err(Error::NotCieId),
-            None => Err(Error::NoEntryAtGivenOffset),
+        let Some(prefix) = parse_cfi_entry_prefix(section, input)? else {
+            return Err(Error::NoEntryAtGivenOffset);
+        };
+        if !Section::is_cie(prefix.format, prefix.cie_id_or_offset) {
+            return Err(Error::NotCieId);
         }
+        CommonInformationEntry::from_prefix(section, bases, prefix)
     }
 
-    fn parse_rest<Section: UnwindSection<R>>(
-        offset: R::Offset,
-        length: R::Offset,
-        format: Format,
-        bases: &BaseAddresses,
+    fn from_prefix<Section: UnwindSection<R>>(
         section: &Section,
-        mut rest: R,
+        bases: &BaseAddresses,
+        prefix: CfiEntryPrefix<R>,
     ) -> Result<CommonInformationEntry<R>> {
+        let mut rest = prefix.rest;
         let version = rest.read_u8()?;
 
         // Version 1 of `.debug_frame` corresponds to DWARF 2, and then for
@@ -1377,9 +1398,9 @@ impl<R: Reader> CommonInformationEntry<R> {
         };
 
         let entry = CommonInformationEntry {
-            offset,
-            length,
-            format,
+            offset: prefix.offset,
+            length: prefix.length,
+            format: prefix.format,
             version,
             augmentation,
             address_size,
@@ -1544,11 +1565,36 @@ where
         bases: &'bases BaseAddresses,
         input: &mut R,
     ) -> Result<PartialFrameDescriptionEntry<'bases, Section, R>> {
-        match parse_cfi_entry(bases, section, input)? {
-            Some(CieOrFde::Cie(_)) => Err(Error::NotFdePointer),
-            Some(CieOrFde::Fde(partial)) => Ok(partial),
-            None => Err(Error::NoEntryAtGivenOffset),
+        let Some(prefix) = parse_cfi_entry_prefix(section, input)? else {
+            return Err(Error::NoEntryAtGivenOffset);
+        };
+        if Section::is_cie(prefix.format, prefix.cie_id_or_offset) {
+            return Err(Error::NotCiePointer);
         }
+        Self::from_prefix(section, bases, prefix)
+    }
+
+    fn from_prefix(
+        section: &Section,
+        bases: &'bases BaseAddresses,
+        prefix: CfiEntryPrefix<R>,
+    ) -> Result<PartialFrameDescriptionEntry<'bases, Section, R>> {
+        let cie_offset = R::Offset::from_u64(prefix.cie_id_or_offset)?;
+        let Some(cie_offset) = section.resolve_cie_offset(prefix.cie_offset_base, cie_offset)
+        else {
+            return Err(Error::OffsetOutOfBounds);
+        };
+
+        let fde = PartialFrameDescriptionEntry {
+            offset: prefix.offset,
+            length: prefix.length,
+            format: prefix.format,
+            cie_offset: cie_offset.into(),
+            rest: prefix.rest,
+            section: section.clone(),
+            bases,
+        };
+        Ok(fde)
     }
 
     /// Fully parse this FDE.
@@ -3778,7 +3824,7 @@ mod tests {
         F: FnMut(&Section, &BaseAddresses, O) -> Result<CommonInformationEntry<R>>,
     {
         let bases = Default::default();
-        match parse_cfi_entry(&bases, &section, input) {
+        match parse_cfi_entry(&section, &bases, input) {
             Ok(Some(CieOrFde::Fde(partial))) => partial.parse(get_cie),
             Ok(_) => Err(Error::NoEntryAtGivenOffset),
             Err(e) => Err(e),
@@ -3984,7 +4030,7 @@ mod tests {
         debug_frame.set_address_size(address_size);
         let input = &mut EndianSlice::new(&section, E::default());
         let bases = Default::default();
-        let result = CommonInformationEntry::parse(&bases, &debug_frame, input);
+        let result = CommonInformationEntry::parse(&debug_frame, &bases, input);
         let result = result.map(|cie| (*input, cie)).map_eof(&section);
         assert_eq!(result, expected);
     }
@@ -4177,8 +4223,8 @@ mod tests {
         let bases = Default::default();
         assert_eq!(
             CommonInformationEntry::parse(
-                &bases,
                 &debug_frame,
+                &bases,
                 &mut EndianSlice::new(&contents, LittleEndian)
             )
             .map_eof(&contents),
@@ -4355,7 +4401,7 @@ mod tests {
 
         let bases = Default::default();
         assert_eq!(
-            parse_cfi_entry(&bases, &debug_frame, rest),
+            parse_cfi_entry(&debug_frame, &bases, rest),
             Ok(Some(CieOrFde::Cie(cie)))
         );
         assert_eq!(*rest, EndianSlice::new(&expected_rest, BigEndian));
@@ -4401,7 +4447,7 @@ mod tests {
         let rest = &mut EndianSlice::new(&section, BigEndian);
 
         let bases = Default::default();
-        match parse_cfi_entry(&bases, &debug_frame, rest) {
+        match parse_cfi_entry(&debug_frame, &bases, rest) {
             Ok(Some(CieOrFde::Fde(partial))) => {
                 assert_eq!(*rest, EndianSlice::new(&expected_rest, BigEndian));
 
@@ -6740,7 +6786,7 @@ mod tests {
         let input = &mut EndianSlice::new(&section[buf.len()..], LittleEndian);
 
         let bases = Default::default();
-        match parse_cfi_entry(&bases, &eh_frame, input) {
+        match parse_cfi_entry(&eh_frame, &bases, input) {
             Ok(Some(CieOrFde::Fde(partial))) => Ok(partial.cie_offset.0),
             Err(e) => Err(e),
             otherwise => panic!("Unexpected result: {:#?}", otherwise),

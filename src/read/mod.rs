@@ -318,8 +318,6 @@ pub enum Error {
     NotCieId,
     /// Expected to find a pointer to a CIE, but found the CIE ID instead.
     NotCiePointer,
-    /// Expected to find a pointer to an FDE, but found a CIE instead.
-    NotFdePointer,
     /// Invalid branch target for a DW_OP_bra or DW_OP_skip.
     BadBranchTarget(u64),
     /// DW_OP_push_object_address used but no address passed in.
@@ -504,9 +502,6 @@ impl Error {
             Error::BadUtf8 => "Found an invalid UTF-8 string.",
             Error::NotCieId => "Expected to find the CIE ID, but found something else.",
             Error::NotCiePointer => "Expected to find a CIE pointer, but found the CIE ID instead.",
-            Error::NotFdePointer => {
-                "Expected to find an FDE pointer, but found a CIE pointer instead."
-            }
             Error::BadBranchTarget(_) => "Invalid branch target in DWARF expression",
             Error::InvalidPushObjectAddress => {
                 "DW_OP_push_object_address used but no object address given"
