@@ -193,6 +193,11 @@ impl Expression {
         self.operations.push(Operation::CallRef(entry));
     }
 
+    /// Add a `DW_OP_variable_value` operation to the expression.
+    pub fn op_variable_value(&mut self, entry: DebugInfoRef) {
+        self.operations.push(Operation::VariableValue(entry));
+    }
+
     /// Add a `DW_OP_convert` or `DW_OP_GNU_convert` operation to the expression.
     ///
     /// `base` is the DIE of the base type, or `None` for the generic type.
@@ -1388,6 +1393,13 @@ mod tests {
                             },
                         ),
                         (
+                            &|x| x.op_variable_value(reference),
+                            Operation::VariableValue(reference),
+                            &|x| read::Operation::VariableValue {
+                                offset: x.debug_info_offset,
+                            },
+                        ),
+                        (
                             &|x| x.op(constants::DW_OP_form_tls_address),
                             Operation::Simple(constants::DW_OP_form_tls_address),
                             &|_| read::Operation::TLS,
@@ -1494,6 +1506,11 @@ mod tests {
                             &|x| read::Operation::Reinterpret {
                                 base_type: x.entry_offset,
                             },
+                        ),
+                        (
+                            &|x| x.op(constants::DW_OP_GNU_uninit),
+                            Operation::Simple(constants::DW_OP_GNU_uninit),
+                            &|_| read::Operation::Uninitialized,
                         ),
                         (
                             &|x| x.op_wasm_local(1000),
@@ -1610,6 +1627,7 @@ mod tests {
                                 *entry = *convert_entry_id;
                             }
                             Operation::CallRef(entry)
+                            | Operation::VariableValue(entry)
                             | Operation::ImplicitPointer { entry, .. } => {
                                 *entry = DebugInfoRef::Entry(convert_unit_id, *convert_entry_id);
                             }
