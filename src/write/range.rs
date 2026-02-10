@@ -55,13 +55,18 @@ impl RangeListTable {
         &self,
         sections: &mut Sections<W>,
         encoding: Encoding,
+        have_base_address: bool,
     ) -> Result<RangeListOffsets> {
         if self.ranges.is_empty() {
             return Ok(RangeListOffsets::none());
         }
 
         match encoding.version {
-            2..=4 => self.write_ranges(&mut sections.debug_ranges, encoding.address_size),
+            2..=4 => self.write_ranges(
+                &mut sections.debug_ranges,
+                encoding.address_size,
+                have_base_address,
+            ),
             5 => self.write_rnglists(&mut sections.debug_rnglists, encoding),
             _ => Err(Error::UnsupportedVersion(encoding.version)),
         }
@@ -72,6 +77,7 @@ impl RangeListTable {
         &self,
         w: &mut DebugRanges<W>,
         address_size: u8,
+        mut have_base_address: bool,
     ) -> Result<RangeListOffsets> {
         let mut offsets = Vec::new();
         for range_list in self.ranges.iter() {
@@ -85,10 +91,14 @@ impl RangeListTable {
                         let marker = !0 >> (64 - address_size * 8);
                         w.write_udata(marker, address_size)?;
                         w.write_address(address, address_size)?;
+                        have_base_address = true;
                     }
                     Range::OffsetPair { begin, end } => {
                         if begin == end {
                             return Err(Error::InvalidRange);
+                        }
+                        if !have_base_address {
+                            return Err(Error::MissingBaseAddress);
                         }
                         w.write_udata(begin, address_size)?;
                         w.write_udata(end, address_size)?;
@@ -96,6 +106,9 @@ impl RangeListTable {
                     Range::StartEnd { begin, end } => {
                         if begin == end {
                             return Err(Error::InvalidRange);
+                        }
+                        if have_base_address {
+                            return Err(Error::UnexpectedBaseAddress);
                         }
                         w.write_address(begin, address_size)?;
                         w.write_address(end, address_size)?;
@@ -110,6 +123,9 @@ impl RangeListTable {
                         };
                         if begin == end {
                             return Err(Error::InvalidRange);
+                        }
+                        if have_base_address {
+                            return Err(Error::UnexpectedBaseAddress);
                         }
                         w.write_address(begin, address_size)?;
                         w.write_address(end, address_size)?;
@@ -329,8 +345,8 @@ mod tests {
         DebugAbbrevOffset, DebugAddrBase, DebugLocListsBase, DebugRngListsBase,
         DebugStrOffsetsBase, Format, UnitSectionOffset,
     };
-    use crate::read;
-    use crate::write::{EndianVec, Range, RangeListTable};
+    use crate::write::{AttributeValue, DwarfUnit, EndianVec, Range, RangeListTable};
+    use crate::{constants, read};
     use alloc::sync::Arc;
 
     #[test]
@@ -366,7 +382,7 @@ mod tests {
                     let range_list_id = ranges.add(range_list.clone());
 
                     let mut sections = Sections::new(EndianVec::new(LittleEndian));
-                    let range_list_offsets = ranges.write(&mut sections, encoding).unwrap();
+                    let range_list_offsets = ranges.write(&mut sections, encoding, false).unwrap();
 
                     let read_debug_ranges =
                         read::DebugRanges::new(sections.debug_ranges.slice(), LittleEndian);
@@ -416,6 +432,55 @@ mod tests {
                     assert_eq!(range_list, convert_range_list);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn test_range_base_address_v4() {
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 4,
+            address_size: 8,
+        };
+        let range = [
+            Range::OffsetPair {
+                begin: 0x1234,
+                end: 0x2345,
+            },
+            Range::StartEnd {
+                begin: Address::Constant(0x1234),
+                end: Address::Constant(0x2345),
+            },
+            Range::StartLength {
+                begin: Address::Constant(0x1234),
+                length: 1,
+            },
+        ];
+        for (r, low_pc, err) in [
+            (0, None, Err(Error::MissingBaseAddress)),
+            (0, Some(0), Err(Error::MissingBaseAddress)),
+            (0, Some(1), Ok(())),
+            (1, None, Ok(())),
+            (1, Some(0), Ok(())),
+            (1, Some(1), Err(Error::UnexpectedBaseAddress)),
+            (2, None, Ok(())),
+            (2, Some(0), Ok(())),
+            (2, Some(1), Err(Error::UnexpectedBaseAddress)),
+        ] {
+            let mut dwarf = DwarfUnit::new(encoding);
+            let range = dwarf.unit.ranges.add(RangeList(vec![range[r].clone()]));
+
+            let root = dwarf.unit.get_mut(dwarf.unit.root());
+            if let Some(low_pc) = low_pc {
+                root.set(
+                    constants::DW_AT_low_pc,
+                    AttributeValue::Address(Address::Constant(low_pc)),
+                );
+            }
+            root.set(constants::DW_AT_ranges, AttributeValue::RangeListRef(range));
+
+            let mut sections = Sections::new(EndianVec::new(LittleEndian));
+            assert_eq!(dwarf.write(&mut sections), err);
         }
     }
 }
