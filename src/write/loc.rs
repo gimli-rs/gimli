@@ -58,6 +58,7 @@ impl LocationListTable {
         &self,
         sections: &mut Sections<W>,
         encoding: Encoding,
+        have_base_address: bool,
         unit_offsets: Option<&UnitOffsets>,
     ) -> Result<LocationListOffsets> {
         if self.locations.is_empty() {
@@ -69,6 +70,7 @@ impl LocationListTable {
                 &mut sections.debug_loc,
                 &mut sections.debug_loc_fixups,
                 encoding,
+                have_base_address,
                 unit_offsets,
             ),
             5 => self.write_loclists(
@@ -87,6 +89,7 @@ impl LocationListTable {
         w: &mut DebugLoc<W>,
         refs: &mut Vec<DebugInfoFixup>,
         encoding: Encoding,
+        mut have_base_address: bool,
         unit_offsets: Option<&UnitOffsets>,
     ) -> Result<LocationListOffsets> {
         let address_size = encoding.address_size;
@@ -102,6 +105,7 @@ impl LocationListTable {
                         let marker = !0 >> (64 - address_size * 8);
                         w.write_udata(marker, address_size)?;
                         w.write_address(address, address_size)?;
+                        have_base_address = true;
                     }
                     Location::OffsetPair {
                         begin,
@@ -110,6 +114,9 @@ impl LocationListTable {
                     } => {
                         if begin == end {
                             return Err(Error::InvalidRange);
+                        }
+                        if !have_base_address {
+                            return Err(Error::MissingBaseAddress);
                         }
                         w.write_udata(begin, address_size)?;
                         w.write_udata(end, address_size)?;
@@ -122,6 +129,9 @@ impl LocationListTable {
                     } => {
                         if begin == end {
                             return Err(Error::InvalidRange);
+                        }
+                        if have_base_address {
+                            return Err(Error::UnexpectedBaseAddress);
                         }
                         w.write_address(begin, address_size)?;
                         w.write_address(end, address_size)?;
@@ -141,6 +151,9 @@ impl LocationListTable {
                         };
                         if begin == end {
                             return Err(Error::InvalidRange);
+                        }
+                        if have_base_address {
+                            return Err(Error::UnexpectedBaseAddress);
                         }
                         w.write_address(begin, address_size)?;
                         w.write_address(end, address_size)?;
@@ -434,8 +447,8 @@ mod tests {
         DebugAbbrevOffset, DebugAddrBase, DebugLocListsBase, DebugRngListsBase,
         DebugStrOffsetsBase, Format, UnitSectionOffset,
     };
-    use crate::read;
-    use crate::write::{EndianVec, NoConvertDebugInfoRef};
+    use crate::write::{AttributeValue, DwarfUnit, EndianVec, NoConvertDebugInfoRef};
+    use crate::{constants, read};
     use alloc::sync::Arc;
 
     #[test]
@@ -482,7 +495,9 @@ mod tests {
                     let loc_list_id = locations.add(loc_list.clone());
 
                     let mut sections = Sections::new(EndianVec::new(LittleEndian));
-                    let loc_list_offsets = locations.write(&mut sections, encoding, None).unwrap();
+                    let loc_list_offsets = locations
+                        .write(&mut sections, encoding, false, None)
+                        .unwrap();
                     assert!(sections.debug_loc_fixups.is_empty());
                     assert!(sections.debug_loclists_fixups.is_empty());
 
@@ -537,6 +552,64 @@ mod tests {
                     assert_eq!(loc_list, convert_loc_list);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn test_loc_base_address_v4() {
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 4,
+            address_size: 8,
+        };
+        let location = [
+            Location::OffsetPair {
+                begin: 0x1234,
+                end: 0x2345,
+                data: Expression::new(),
+            },
+            Location::StartEnd {
+                begin: Address::Constant(0x1234),
+                end: Address::Constant(0x2345),
+                data: Expression::new(),
+            },
+            Location::StartLength {
+                begin: Address::Constant(0x1234),
+                length: 1,
+                data: Expression::new(),
+            },
+        ];
+        for (l, low_pc, err) in [
+            (0, None, Err(Error::MissingBaseAddress)),
+            (0, Some(0), Err(Error::MissingBaseAddress)),
+            (0, Some(1), Ok(())),
+            (1, None, Ok(())),
+            (1, Some(0), Ok(())),
+            (1, Some(1), Err(Error::UnexpectedBaseAddress)),
+            (2, None, Ok(())),
+            (2, Some(0), Ok(())),
+            (2, Some(1), Err(Error::UnexpectedBaseAddress)),
+        ] {
+            let mut dwarf = DwarfUnit::new(encoding);
+            let location = dwarf
+                .unit
+                .locations
+                .add(LocationList(vec![location[l].clone()]));
+
+            let root = dwarf.unit.get_mut(dwarf.unit.root());
+            if let Some(low_pc) = low_pc {
+                root.set(
+                    constants::DW_AT_low_pc,
+                    AttributeValue::Address(Address::Constant(low_pc)),
+                );
+            }
+            root.set(
+                constants::DW_AT_location,
+                AttributeValue::LocationListRef(location),
+            );
+
+            let mut sections = Sections::new(EndianVec::new(LittleEndian));
+            assert_eq!(dwarf.write(&mut sections), err);
         }
     }
 }
