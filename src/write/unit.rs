@@ -415,11 +415,17 @@ impl Unit {
             &mut codes,
         )?;
 
-        let range_lists = self.ranges.write(sections, self.encoding)?;
+        let have_base_address = self.entries[self.root.index].attrs.iter().any(|attr| {
+            attr.name == constants::DW_AT_low_pc
+                && attr.value != AttributeValue::Address(Address::Constant(0))
+        });
+        let range_lists = self
+            .ranges
+            .write(sections, self.encoding, have_base_address)?;
         // Location lists can't be written until we have DIE offsets.
-        let loc_lists = self
-            .locations
-            .write(sections, self.encoding, Some(&offsets))?;
+        let loc_lists =
+            self.locations
+                .write(sections, self.encoding, have_base_address, Some(&offsets))?;
 
         let w = &mut sections.debug_info;
         let mut unit_refs = Vec::new();
