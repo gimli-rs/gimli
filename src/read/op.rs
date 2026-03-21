@@ -889,21 +889,21 @@ pub enum EvaluationResult<R: Reader> {
     },
     /// The `Evaluation` needs the value of a WebAssembly local. Once the caller
     /// determines what value to provide it should resume the `Evaluation` by
-    /// calling `Evaluation::resume_with_wasm_location`.
+    /// calling `Evaluation::resume_with_wasm_value`.
     RequiresWasmLocal {
         /// The index of a global.
         index: u32,
     },
     /// The `Evaluation` needs the value of a WebAssembly global. Once the caller
     /// determines what value to provide it should resume the `Evaluation` by
-    /// calling `Evaluation::resume_with_wasm_location`.
+    /// calling `Evaluation::resume_with_wasm_value`.
     RequiresWasmGlobal {
         /// The index of a global.
         index: u32,
     },
     /// The `Evaluation` needs the value of a WebAssembly operand-stack item.
     /// Once the caller determines what value to provide it should resume the
-    /// `Evaluation` by calling `Evaluation::resume_with_wasm_location`.
+    /// `Evaluation` by calling `Evaluation::resume_with_wasm_value`.
     RequiresWasmStack {
         /// The index of the stack item. 0 is the bottom of the operand stack.
         index: u32,
@@ -1783,14 +1783,14 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
     /// Panics if this `Evaluation` did not previously stop with
     /// `EvaluationResult::RequiresWasmLocal`, `RequiresWasmGlobal`, or
     /// `RequiresWasmStack`.
-    pub fn resume_with_wasm_location(&mut self, value: Value) -> Result<EvaluationResult<R>> {
+    pub fn resume_with_wasm_value(&mut self, value: Value) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(EvaluationWaiting::WasmLocation) => {
                 self.push(value)?;
             }
             _ => panic!(
-                "Called `Evaluation::resume_with_wasm_location` without a preceding `EvaluationResult::RequiresWasmLocal`, `RequiresWasmGlobal`, or `RequiresWasmStack`"
+                "Called `Evaluation::resume_with_wasm_value` without a preceding `EvaluationResult::RequiresWasmLocal`, `RequiresWasmGlobal`, or `RequiresWasmStack`"
             ),
         };
 
