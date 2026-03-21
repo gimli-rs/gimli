@@ -854,6 +854,7 @@ enum EvaluationWaiting<R: Reader> {
     TypedLiteral { value: R },
     Convert,
     Reinterpret,
+    WasmValue,
 }
 
 /// The state of an `Evaluation` after evaluating a DWARF expression.
@@ -885,6 +886,27 @@ pub enum EvaluationResult<R: Reader> {
         register: Register,
         /// The DIE of the base type or 0 to indicate the generic type
         base_type: UnitOffset<R::Offset>,
+    },
+    /// The `Evaluation` needs the value of a WebAssembly local. Once the caller
+    /// determines what value to provide it should resume the `Evaluation` by
+    /// calling `Evaluation::resume_with_wasm_value`.
+    RequiresWasmLocal {
+        /// The index of a global.
+        index: u32,
+    },
+    /// The `Evaluation` needs the value of a WebAssembly global. Once the caller
+    /// determines what value to provide it should resume the `Evaluation` by
+    /// calling `Evaluation::resume_with_wasm_value`.
+    RequiresWasmGlobal {
+        /// The index of a global.
+        index: u32,
+    },
+    /// The `Evaluation` needs the value of a WebAssembly operand-stack item.
+    /// Once the caller determines what value to provide it should resume the
+    /// `Evaluation` by calling `Evaluation::resume_with_wasm_value`.
+    RequiresWasmStack {
+        /// The index of the stack item. 0 is the bottom of the operand stack.
+        index: u32,
     },
     /// The `Evaluation` needs the frame base address to proceed further.  Once
     /// the caller determines what value to provide it should resume the
@@ -1621,11 +1643,25 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
                     EvaluationResult::RequiresBaseType(base_type),
                 ));
             }
-            Operation::VariableValue { .. }
-            | Operation::Uninitialized
-            | Operation::WasmLocal { .. }
-            | Operation::WasmGlobal { .. }
-            | Operation::WasmStack { .. } => {
+            Operation::WasmLocal { index } => {
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::WasmValue,
+                    EvaluationResult::RequiresWasmLocal { index },
+                ));
+            }
+            Operation::WasmGlobal { index } => {
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::WasmValue,
+                    EvaluationResult::RequiresWasmGlobal { index },
+                ));
+            }
+            Operation::WasmStack { index } => {
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::WasmValue,
+                    EvaluationResult::RequiresWasmStack { index },
+                ));
+            }
+            Operation::VariableValue { .. } | Operation::Uninitialized => {
                 return Err(Error::UnsupportedEvaluation);
             }
         }
@@ -1732,6 +1768,29 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
             }
             _ => panic!(
                 "Called `Evaluation::resume_with_register` without a preceding `EvaluationResult::RequiresRegister`"
+            ),
+        };
+
+        self.evaluate_internal()
+    }
+
+    /// Resume the `Evaluation` with the provided WebAssembly `value`. This will
+    /// apply the value to the evaluation and continue evaluating opcodes until
+    /// the evaluation is completed, reaches an error, or needs more information
+    /// again.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` did not previously stop with
+    /// `EvaluationResult::RequiresWasmLocal`, `RequiresWasmGlobal`, or
+    /// `RequiresWasmStack`.
+    pub fn resume_with_wasm_value(&mut self, value: Value) -> Result<EvaluationResult<R>> {
+        match self.state {
+            EvaluationState::Error(err) => return Err(err),
+            EvaluationState::Waiting(EvaluationWaiting::WasmValue) => {
+                self.push(value)?;
+            }
+            _ => panic!(
+                "Called `Evaluation::resume_with_wasm_value` without a preceding `EvaluationResult::RequiresWasmLocal`, `RequiresWasmGlobal`, or `RequiresWasmStack`"
             ),
         };
 
