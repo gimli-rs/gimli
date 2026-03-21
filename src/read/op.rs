@@ -854,7 +854,7 @@ enum EvaluationWaiting<R: Reader> {
     TypedLiteral { value: R },
     Convert,
     Reinterpret,
-    WasmLocation,
+    WasmValue,
 }
 
 /// The state of an `Evaluation` after evaluating a DWARF expression.
@@ -1645,19 +1645,19 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
             }
             Operation::WasmLocal { index } => {
                 return Ok(OperationEvaluationResult::Waiting(
-                    EvaluationWaiting::WasmLocation,
+                    EvaluationWaiting::WasmValue,
                     EvaluationResult::RequiresWasmLocal { index },
                 ));
             }
             Operation::WasmGlobal { index } => {
                 return Ok(OperationEvaluationResult::Waiting(
-                    EvaluationWaiting::WasmLocation,
+                    EvaluationWaiting::WasmValue,
                     EvaluationResult::RequiresWasmGlobal { index },
                 ));
             }
             Operation::WasmStack { index } => {
                 return Ok(OperationEvaluationResult::Waiting(
-                    EvaluationWaiting::WasmLocation,
+                    EvaluationWaiting::WasmValue,
                     EvaluationResult::RequiresWasmStack { index },
                 ));
             }
@@ -1786,7 +1786,7 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
     pub fn resume_with_wasm_value(&mut self, value: Value) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(EvaluationWaiting::WasmLocation) => {
+            EvaluationState::Waiting(EvaluationWaiting::WasmValue) => {
                 self.push(value)?;
             }
             _ => panic!(
