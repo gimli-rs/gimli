@@ -30,5 +30,5 @@ at some of these issues:
 
 [GitHub]: https://github.com/gimli-rs/gimli
 [crates.io]: https://crates.io/crates/gimli
-[contributing]: https://github.com/gimli-rs/gimli/blob/master/CONTRIBUTING.md
+[contributing]: https://github.com/gimli-rs/gimli/blob/main/CONTRIBUTING.md
 [easy]: https://github.com/gimli-rs/gimli/issues?q=is%3Aopen+is%3Aissue+label%3Aeasy

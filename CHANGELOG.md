@@ -1412,10 +1412,6 @@ Released 2017/08/08.
 * The `DW_OP_addr` opcode is relative to the base address of the `.text` section
   of the binary, but we were incorrectly treating it as an absolute value. [#210][]
 
-[GitHub]: https://github.com/gimli-rs/gimli
-[crates.io]: https://crates.io/crates/gimli
-[contributing]: https://github.com/gimli-rs/gimli/blob/master/CONTRIBUTING.md
-[easy]: https://github.com/gimli-rs/gimli/issues?q=is%3Aopen+is%3Aissue+label%3Aeasy
 [#192]: https://github.com/gimli-rs/gimli/pull/192
 [#193]: https://github.com/gimli-rs/gimli/pull/193
 [#182]: https://github.com/gimli-rs/gimli/issues/182

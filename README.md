@@ -3,7 +3,7 @@
 [![](https://img.shields.io/crates/v/gimli.svg) ![](https://img.shields.io/crates/d/gimli.svg)](https://crates.io/crates/gimli)
 [![](https://docs.rs/gimli/badge.svg)](https://docs.rs/gimli/)
 [![Build Status](https://github.com/gimli-rs/gimli/workflows/Rust/badge.svg)](https://github.com/gimli-rs/gimli/actions)
-[![Coverage Status](https://coveralls.io/repos/github/gimli-rs/gimli/badge.svg?branch=master)](https://coveralls.io/github/gimli-rs/gimli?branch=master)
+[![Coverage Status](https://coveralls.io/repos/github/gimli-rs/gimli/badge.svg?branch=main)](https://coveralls.io/github/gimli-rs/gimli?branch=main)
 
 `gimli` is a library for reading and writing the
 [DWARF debugging format](https://dwarfstd.org/).
