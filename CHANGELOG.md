@@ -2,6 +2,22 @@
 
 --------------------------------------------------------------------------------
 
+## 0.33.1
+
+Released 2026/03/29.
+
+### Added
+
+* Added Wasm location support to `read::Evaluation`.
+  [#871](https://github.com/gimli-rs/gimli/pull/871)
+
+### Changed
+
+* Changed `write` module to validate use of base addresses in range and location lists.
+  [#870](https://github.com/gimli-rs/gimli/pull/870)
+
+--------------------------------------------------------------------------------
+
 ## 0.33.0
 
 Released 2026/01/24.
