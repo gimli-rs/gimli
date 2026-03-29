@@ -891,7 +891,7 @@ pub enum EvaluationResult<R: Reader> {
     /// determines what value to provide it should resume the `Evaluation` by
     /// calling `Evaluation::resume_with_wasm_value`.
     RequiresWasmLocal {
-        /// The index of a global.
+        /// The index of a local.
         index: u32,
     },
     /// The `Evaluation` needs the value of a WebAssembly global. Once the caller
@@ -4284,5 +4284,84 @@ mod tests {
                 },
             );
         }
+    }
+
+    #[test]
+    fn test_eval_wasm() {
+        use self::AssemblerEntry::*;
+        use crate::constants::*;
+
+        #[rustfmt::skip]
+        let tests = [
+            (
+                &[
+                    Op(DW_OP_WASM_location), U8(0), Uleb(0x11),
+                    Op(DW_OP_stack_value),
+                ][..],
+                Value::Generic(0x111),
+            ),
+            (
+                &[
+                    Op(DW_OP_WASM_location), U8(1), Uleb(0x22),
+                    Op(DW_OP_stack_value),
+                ][..],
+                Value::Generic(0x222),
+            ),
+            (
+                &[
+                    Op(DW_OP_WASM_location), U8(2), Uleb(0x33),
+                    Op(DW_OP_stack_value),
+                ][..],
+                Value::Generic(0x333),
+            ),
+            (
+                &[
+                    Op(DW_OP_WASM_location), U8(3), U32(0x44),
+                    Op(DW_OP_stack_value),
+                ][..],
+                Value::Generic(0x244),
+            ),
+        ];
+        for &(program, value) in &tests {
+            let result = [Piece {
+                size_in_bits: None,
+                bit_offset: None,
+                location: Location::Value { value },
+            }];
+
+            check_eval_with_args(
+                program,
+                Ok(&result),
+                encoding4(),
+                None,
+                None,
+                None,
+                |eval, mut result| {
+                    while result != EvaluationResult::Complete {
+                        result = match result {
+                            EvaluationResult::RequiresWasmLocal { index } => eval
+                                .resume_with_wasm_value(Value::Generic(0x100 + u64::from(index)))?,
+                            EvaluationResult::RequiresWasmGlobal { index } => eval
+                                .resume_with_wasm_value(Value::Generic(0x200 + u64::from(index)))?,
+                            EvaluationResult::RequiresWasmStack { index } => eval
+                                .resume_with_wasm_value(Value::Generic(0x300 + u64::from(index)))?,
+                            _ => panic!("Unexpected result {:?}", result),
+                        }
+                    }
+                    Ok(result)
+                },
+            );
+        }
+
+        check_eval(
+            &[
+                Op(DW_OP_WASM_location),
+                U8(4),
+                Uleb(0x11),
+                Op(DW_OP_stack_value),
+            ],
+            Err(Error::InvalidExpression(DW_OP_WASM_location)),
+            encoding4(),
+        );
     }
 }
