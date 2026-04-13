@@ -4,9 +4,9 @@
 
 ## 0.33.1
 
-Released 2026/03/29.
+~Released 2026/03/29.~ Yanked due to breaking change.
 
-### Added
+### Breaking change
 
 * Added Wasm location support to `read::Evaluation`.
   [#871](https://github.com/gimli-rs/gimli/pull/871)
