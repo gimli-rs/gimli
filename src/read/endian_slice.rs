@@ -230,6 +230,18 @@ where
         self.slice.is_empty()
     }
 
+    // NB: This implementation is not strictly necessary, but it results
+    //     in better code gen than the default.
+    #[inline]
+    fn read_u8(&mut self) -> Result<u8> {
+        if let Some((&byte, rest)) = self.slice.split_first() {
+            self.slice = rest;
+            Ok(byte)
+        } else {
+            Err(Error::UnexpectedEof(self.offset_id()))
+        }
+    }
+
     #[inline]
     fn empty(&mut self) {
         self.slice = &[];
