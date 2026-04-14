@@ -88,10 +88,6 @@ pub mod read {
 
         loop {
             let byte = r.read_u8()?;
-            if shift == 63 && byte != 0x00 && byte != 0x01 {
-                return Err(Error::BadUnsignedLeb128);
-            }
-
             let low_bits = u64::from(low_bits_of_byte(byte));
             result |= low_bits << shift;
 
@@ -100,7 +96,19 @@ pub mod read {
             }
 
             shift += 7;
+            if shift >= 63 {
+                break;
+            }
         }
+
+        // The 10th byte (shift == 63) can only contribute bit 63.
+        // Valid values are 0x00 or 0x01 (no continuation bit allowed).
+        let byte = r.read_u8()?;
+        if byte != 0x00 && byte != 0x01 {
+            return Err(Error::BadUnsignedLeb128);
+        }
+        result |= u64::from(byte) << 63;
+        Ok(result)
     }
 
     /// Read an LEB128 u16 from the given `Reader` and
