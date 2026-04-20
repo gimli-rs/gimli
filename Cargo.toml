@@ -22,7 +22,7 @@ rust-version = "1.88"
 [dependencies]
 fallible-iterator = { version = "0.3.0", default-features = false, optional = true }
 fnv = { version = "1.0.7", default-features = false, optional = true }
-hashbrown = { version = "0.16.0", default-features = false, optional = true }
+hashbrown = { version = "0.17.0", default-features = false, optional = true }
 indexmap = { version = "2.0.0", default-features = false, optional = true }
 stable_deref_trait = { version = "1.1.0", default-features = false, optional = true }
 
