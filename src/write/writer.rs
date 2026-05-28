@@ -215,6 +215,18 @@ pub trait Writer {
                 }
                 self.write_u16(write_val)
             }
+            3 => {
+                if val > 0xff_ffff {
+                    return Err(Error::ValueTooLarge);
+                }
+                let mut bytes = [0; 4];
+                self.endian().write_u32(&mut bytes, val as u32);
+                if self.endian().is_big_endian() {
+                    self.write(&bytes[1..])
+                } else {
+                    self.write(&bytes[..3])
+                }
+            }
             4 => {
                 let write_val = val as u32;
                 if val != u64::from(write_val) {
@@ -278,6 +290,18 @@ pub trait Writer {
                     return Err(Error::ValueTooLarge);
                 }
                 self.write_u16_at(offset, write_val)
+            }
+            3 => {
+                if val > 0xff_ffff {
+                    return Err(Error::ValueTooLarge);
+                }
+                let mut bytes = [0; 4];
+                self.endian().write_u32(&mut bytes, val as u32);
+                if self.endian().is_big_endian() {
+                    self.write_at(offset, &bytes[1..])
+                } else {
+                    self.write_at(offset, &bytes[..3])
+                }
             }
             4 => {
                 let write_val = val as u32;
