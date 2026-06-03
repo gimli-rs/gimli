@@ -1,10 +1,11 @@
 use crate::common::{DebugInfoOffset, Format, SectionId};
+use crate::constants::GdbIndexSymbolKind;
 use crate::endianity::Endianity;
 use crate::read::lookup::{DebugPubSet, PubSet, PubSetEntry, PubSetEntryIter, PubSetIter};
 use crate::read::{EndianSlice, Reader, Result, Section, UnitOffset};
 
 /// The `DebugPubTypes` struct represents the DWARF public types information
-/// found in the `.debug_info` section.
+/// found in the `.debug_pubtypes` section.
 #[derive(Debug, Clone)]
 pub struct DebugPubTypes<R: Reader>(DebugPubSet<R>);
 
@@ -49,7 +50,7 @@ impl<R: Reader> DebugPubTypes<R> {
     /// }
     /// ```
     pub fn items(&self) -> PubTypesEntryIter<R> {
-        PubTypesEntryIter(self.0.items())
+        PubTypesEntryIter(self.0.items(false))
     }
 
     /// Iterate the sets of entries in the `.debug_pubtypes` section.
@@ -57,7 +58,7 @@ impl<R: Reader> DebugPubTypes<R> {
     /// Each set corresponds to a single unit, and contains the header for that
     /// unit followed by its entries.
     pub fn sets(&self) -> PubTypesSetIter<R> {
-        PubTypesSetIter(self.0.sets())
+        PubTypesSetIter(self.0.sets(false))
     }
 }
 
@@ -77,7 +78,81 @@ impl<R: Reader> From<R> for DebugPubTypes<R> {
     }
 }
 
-/// An iterator over the pubtypes from a `.debug_pubtypes` section.
+/// The `DebugGnuPubTypes` struct represents the DWARF public types information
+/// found in the `.debug_gnu_pubtypes` section.
+#[derive(Debug, Clone)]
+pub struct DebugGnuPubTypes<R: Reader>(DebugPubSet<R>);
+
+impl<'input, Endian> DebugGnuPubTypes<EndianSlice<'input, Endian>>
+where
+    Endian: Endianity,
+{
+    /// Construct a new `DebugGnuPubTypes` instance from the data in the `.debug_gnu_pubtypes`
+    /// section.
+    ///
+    /// It is the caller's responsibility to read the `.debug_gnu_pubtypes` section and
+    /// present it as a `&[u8]` slice. That means using some ELF loader on
+    /// Linux, a Mach-O loader on macOS, etc.
+    ///
+    /// ```
+    /// use gimli::{DebugGnuPubTypes, LittleEndian};
+    ///
+    /// # let buf = [];
+    /// # let read_debug_gnu_pubtypes_somehow = || &buf;
+    /// let debug_gnu_pubtypes =
+    ///     DebugGnuPubTypes::new(read_debug_gnu_pubtypes_somehow(), LittleEndian);
+    /// ```
+    pub fn new(section: &'input [u8], endian: Endian) -> Self {
+        Self::from(EndianSlice::new(section, endian))
+    }
+}
+
+impl<R: Reader> DebugGnuPubTypes<R> {
+    /// Iterate the pubtypes in the `.debug_gnu_pubtypes` section.
+    ///
+    /// ```
+    /// use gimli::{DebugGnuPubTypes, EndianSlice, LittleEndian};
+    ///
+    /// # let buf = [];
+    /// # let read_debug_gnu_pubtypes_section_somehow = || &buf;
+    /// let debug_gnu_pubtypes =
+    ///     DebugGnuPubTypes::new(read_debug_gnu_pubtypes_section_somehow(), LittleEndian);
+    ///
+    /// let mut iter = debug_gnu_pubtypes.items();
+    /// while let Some(pubtype) = iter.next().unwrap() {
+    ///   println!("pubtype {} found!", pubtype.name().to_string_lossy());
+    /// }
+    /// ```
+    pub fn items(&self) -> PubTypesEntryIter<R> {
+        PubTypesEntryIter(self.0.items(true))
+    }
+
+    /// Iterate the sets of entries in the `.debug_gnu_pubtypes` section.
+    ///
+    /// Each set corresponds to a single unit, and contains the header for that
+    /// unit followed by its entries.
+    pub fn sets(&self) -> PubTypesSetIter<R> {
+        PubTypesSetIter(self.0.sets(true))
+    }
+}
+
+impl<R: Reader> Section<R> for DebugGnuPubTypes<R> {
+    fn id() -> SectionId {
+        SectionId::DebugGnuPubTypes
+    }
+
+    fn reader(&self) -> &R {
+        &self.0.section
+    }
+}
+
+impl<R: Reader> From<R> for DebugGnuPubTypes<R> {
+    fn from(section: R) -> Self {
+        DebugGnuPubTypes(DebugPubSet { section })
+    }
+}
+
+/// An iterator over the pubtypes from a `.debug_pubtypes` or `.debug_gnu_pubtypes` section.
 #[derive(Debug, Clone)]
 pub struct PubTypesSetIter<R: Reader>(PubSetIter<R>);
 
@@ -111,7 +186,7 @@ impl<R: Reader> Iterator for PubTypesSetIter<R> {
     }
 }
 
-/// A set of entries that share a header in a `.debug_pubtypes` section.
+/// A set of entries that share a header in a `.debug_pubtypes` or `.debug_gnu_pubtypes` section.
 ///
 /// These entries all belong to a single unit.
 #[derive(Debug, Clone)]
@@ -151,7 +226,7 @@ impl<R: Reader> PubTypesSet<R> {
     }
 }
 
-/// An iterator over the pubtypes from a `.debug_pubtypes` section.
+/// An iterator over the pubtypes from a `.debug_pubtypes` or `.debug_gnu_pubtypes` section.
 #[derive(Debug, Clone)]
 pub struct PubTypesEntryIter<R: Reader>(PubSetEntryIter<R>);
 
@@ -207,12 +282,30 @@ impl<R: Reader> PubTypesEntry<R> {
     pub fn die_offset(&self) -> UnitOffset<R::Offset> {
         self.0.die_offset
     }
+
+    /// Return the symbol kind.
+    ///
+    /// The compiler derives this from the tag of the DIE.
+    ///
+    /// Only .debug_gnu_pubtypes entries contain this value.
+    /// Always returns `GDB_INDEX_SYMBOL_KIND_NONE` for a .debug_pubtypes entry.
+    pub fn kind(&self) -> GdbIndexSymbolKind {
+        self.0.kind()
+    }
+
+    /// Return true if the symbol is static.
+    ///
+    /// Always returns false for a .debug_pubtypes entry.
+    pub fn is_static(&self) -> bool {
+        self.0.is_static()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::common::DebugInfoOffset;
+    use crate::constants::*;
     use crate::test_util::GimliSectionMethods;
     use crate::{Format, LittleEndian};
     use test_assembler::{Endian, Label, LabelMaker, Section};
@@ -265,6 +358,8 @@ mod tests {
             assert_eq!(entry.name(), &EndianSlice::new(b"foo", LittleEndian));
             assert_eq!(entry.unit_header_offset(), DebugInfoOffset(0x10));
             assert_eq!(entry.die_offset(), UnitOffset(0x02));
+            assert_eq!(entry.kind(), GDB_INDEX_SYMBOL_KIND_NONE);
+            assert!(!entry.is_static());
 
             let entry = items.next().unwrap().unwrap();
             assert_eq!(entry.name(), &EndianSlice::new(b"bar", LittleEndian));
@@ -311,6 +406,41 @@ mod tests {
             assert!(matches!(items.next(), Ok(None)));
 
             assert!(matches!(sets.next(), Ok(None)));
+        }
+    }
+
+    #[test]
+    fn test_gnu_pubtypes() {
+        for format in [Format::Dwarf32, Format::Dwarf64] {
+            let size = format.word_size();
+
+            let length = Label::new();
+            let start = Label::new();
+            let section = Section::with_endian(Endian::Little)
+                .initial_length(format, &length, &start)
+                .D16(2) // Version
+                .word(size, 0x10) // Unit header offset
+                .word(size, 0x20) // Unit length
+                // Entry 1
+                .word(size, 0x02)
+                .D8(0x90) // static (0x80) | type (1 << 4) = 0x90.
+                .append_bytes(b"foo\0")
+                // Null entry
+                .word(size, 0)
+                .set_initial_length(&length, &start);
+
+            let section = section.get_contents().unwrap();
+            let debug_gnu_pubtypes = DebugGnuPubTypes::new(&section, LittleEndian);
+            let mut items = debug_gnu_pubtypes.items();
+
+            let entry = items.next().unwrap().unwrap();
+            assert_eq!(entry.name(), &EndianSlice::new(b"foo", LittleEndian));
+            assert_eq!(entry.unit_header_offset(), DebugInfoOffset(0x10));
+            assert_eq!(entry.die_offset(), UnitOffset(0x02));
+            assert_eq!(entry.kind(), GDB_INDEX_SYMBOL_KIND_TYPE);
+            assert!(entry.is_static());
+
+            assert!(matches!(items.next(), Ok(None)));
         }
     }
 }

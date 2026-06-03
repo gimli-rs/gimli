@@ -1454,6 +1454,19 @@ impl DwEhPe {
     }
 }
 
+dw!(
+/// The kind for a symbol in .gdb_index, .debug_gnu_pubnames, or .debug_gnu_pubtypes.
+GdbIndexSymbolKind(u8) {
+  GDB_INDEX_SYMBOL_KIND_NONE = 0,
+  GDB_INDEX_SYMBOL_KIND_TYPE = 1,
+  GDB_INDEX_SYMBOL_KIND_VARIABLE = 2,
+  GDB_INDEX_SYMBOL_KIND_FUNCTION = 3,
+  GDB_INDEX_SYMBOL_KIND_OTHER = 4,
+  GDB_INDEX_SYMBOL_KIND_UNUSED5 = 5,
+  GDB_INDEX_SYMBOL_KIND_UNUSED6 = 6,
+  GDB_INDEX_SYMBOL_KIND_UNUSED7 = 7
+});
+
 #[cfg(test)]
 mod tests {
     use super::*;

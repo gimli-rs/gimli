@@ -239,6 +239,10 @@ pub enum SectionId {
     EhFrame,
     /// The `.eh_frame_hdr` section.
     EhFrameHdr,
+    /// The `.debug_gnu_pubnames` section.
+    DebugGnuPubNames,
+    /// The `.debug_gnu_pubtypes` section.
+    DebugGnuPubTypes,
     /// The `.debug_info` section.
     DebugInfo,
     /// The `.debug_line` section.
@@ -284,6 +288,8 @@ impl SectionId {
             SectionId::DebugFrame => ".debug_frame",
             SectionId::EhFrame => ".eh_frame",
             SectionId::EhFrameHdr => ".eh_frame_hdr",
+            SectionId::DebugGnuPubNames => ".debug_gnu_pubnames",
+            SectionId::DebugGnuPubTypes => ".debug_gnu_pubtypes",
             SectionId::DebugInfo => ".debug_info",
             SectionId::DebugLine => ".debug_line",
             SectionId::DebugLineStr => ".debug_line_str",

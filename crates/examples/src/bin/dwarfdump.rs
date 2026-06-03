@@ -185,6 +185,8 @@ impl<'a, R: gimli::Reader<Offset = usize> + Send + Sync> Reader for Relocate<'a,
 struct Flags<'a> {
     addr: bool,
     aranges: bool,
+    gnupubnames: bool,
+    gnupubtypes: bool,
     info: bool,
     line: bool,
     names: bool,
@@ -215,6 +217,16 @@ fn main() {
     opts.optflag("i", "", "print .debug_info and .debug_types sections");
     opts.optflag("", "debug-addr", "print .debug_addr section");
     opts.optflag("r", "debug-aranges", "print .debug_aranges section");
+    opts.optflag(
+        "",
+        "debug-gnu-pubnames",
+        "print .debug_gnu_pubnames section",
+    );
+    opts.optflag(
+        "",
+        "debug-gnu-pubtypes",
+        "print .debug_gnu_pubtypes section",
+    );
     opts.optflagopt("", "debug-info", "print .debug_info section", "OFFSET");
     opts.optflag("l", "debug-line", "print .debug_line section");
     opts.optflag("", "debug-names", "print .debug_names section");
@@ -276,6 +288,14 @@ fn main() {
         flags.aranges = true;
         all = false;
     }
+    if matches.opt_present("debug-gnu-pubnames") {
+        flags.gnupubnames = true;
+        all = false;
+    }
+    if matches.opt_present("debug-gnu-pubtypes") {
+        flags.gnupubtypes = true;
+        all = false;
+    }
     if matches.opt_present("debug-info") {
         flags.info = true;
         if let Some(offset) = matches.opt_str("debug-info") {
@@ -330,6 +350,8 @@ fn main() {
         // cosmetic flags like -G must be set explicitly too.
         flags.addr = true;
         flags.aranges = true;
+        flags.gnupubnames = true;
+        flags.gnupubtypes = true;
         flags.info = true;
         flags.line = true;
         flags.names = true;
@@ -571,9 +593,17 @@ where
         let debug_pubnames = &gimli::Section::load(load_section).unwrap();
         dump_pubnames(w, debug_pubnames)?;
     }
+    if flags.gnupubnames {
+        let debug_gnu_pubnames = &gimli::Section::load(load_section).unwrap();
+        dump_gnu_pubnames(w, debug_gnu_pubnames)?;
+    }
     if flags.pubtypes {
         let debug_pubtypes = &gimli::Section::load(load_section).unwrap();
         dump_pubtypes(w, debug_pubtypes)?;
+    }
+    if flags.gnupubtypes {
+        let debug_gnu_pubtypes = &gimli::Section::load(load_section).unwrap();
+        dump_gnu_pubtypes(w, debug_gnu_pubtypes)?;
     }
     if flags.names {
         dump_names(w, &dwarf)?;
@@ -2239,13 +2269,10 @@ fn dump_line_program<R: Reader, W: Write>(w: &mut W, unit: gimli::UnitRef<R>) ->
     Ok(())
 }
 
-fn dump_pubnames<R: Reader, W: Write>(
-    w: &mut W,
-    debug_pubnames: &gimli::DebugPubNames<R>,
-) -> Result<()> {
+fn dump_pubnames<R: Reader, W: Write>(w: &mut W, section: &gimli::DebugPubNames<R>) -> Result<()> {
     writeln!(w, "\n.debug_pubnames")?;
 
-    let mut sets = debug_pubnames.sets();
+    let mut sets = section.sets();
     while let Some(set) = sets.next()? {
         dump_pub_set_header(
             w,
@@ -2254,6 +2281,7 @@ fn dump_pubnames<R: Reader, W: Write>(
             set.unit_header_offset(),
             set.unit_length(),
             set.length(),
+            false,
         )?;
         let mut entries = set.items();
         while let Some(entry) = entries.next()? {
@@ -2263,13 +2291,13 @@ fn dump_pubnames<R: Reader, W: Write>(
     Ok(())
 }
 
-fn dump_pubtypes<R: Reader, W: Write>(
+fn dump_gnu_pubnames<R: Reader, W: Write>(
     w: &mut W,
-    debug_pubtypes: &gimli::DebugPubTypes<R>,
+    section: &gimli::DebugGnuPubNames<R>,
 ) -> Result<()> {
-    writeln!(w, "\n.debug_pubtypes")?;
+    writeln!(w, "\n.debug_gnu_pubnames")?;
 
-    let mut sets = debug_pubtypes.sets();
+    let mut sets = section.sets();
     while let Some(set) = sets.next()? {
         dump_pub_set_header(
             w,
@@ -2278,10 +2306,70 @@ fn dump_pubtypes<R: Reader, W: Write>(
             set.unit_header_offset(),
             set.unit_length(),
             set.length(),
+            true,
+        )?;
+        let mut entries = set.items();
+        while let Some(entry) = entries.next()? {
+            dump_gnu_pub_entry(
+                w,
+                entry.die_offset(),
+                entry.is_static(),
+                entry.kind(),
+                entry.name(),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn dump_pubtypes<R: Reader, W: Write>(w: &mut W, section: &gimli::DebugPubTypes<R>) -> Result<()> {
+    writeln!(w, "\n.debug_pubtypes")?;
+
+    let mut sets = section.sets();
+    while let Some(set) = sets.next()? {
+        dump_pub_set_header(
+            w,
+            set.format(),
+            set.version(),
+            set.unit_header_offset(),
+            set.unit_length(),
+            set.length(),
+            false,
         )?;
         let mut entries = set.items();
         while let Some(entry) = entries.next()? {
             dump_pub_entry(w, entry.die_offset(), entry.name())?;
+        }
+    }
+    Ok(())
+}
+
+fn dump_gnu_pubtypes<R: Reader, W: Write>(
+    w: &mut W,
+    section: &gimli::DebugGnuPubTypes<R>,
+) -> Result<()> {
+    writeln!(w, "\n.debug_gnu_pubtypes")?;
+
+    let mut sets = section.sets();
+    while let Some(set) = sets.next()? {
+        dump_pub_set_header(
+            w,
+            set.format(),
+            set.version(),
+            set.unit_header_offset(),
+            set.unit_length(),
+            set.length(),
+            true,
+        )?;
+        let mut entries = set.items();
+        while let Some(entry) = entries.next()? {
+            dump_gnu_pub_entry(
+                w,
+                entry.die_offset(),
+                entry.is_static(),
+                entry.kind(),
+                entry.name(),
+            )?;
         }
     }
     Ok(())
@@ -2294,13 +2382,18 @@ fn dump_pub_set_header<W: Write>(
     unit_offset: gimli::DebugInfoOffset,
     unit_length: usize,
     length: usize,
+    is_gnu: bool,
 ) -> Result<()> {
     writeln!(
         w,
         "\nlength = 0x{:x}, format = {:?}, version = {}, unit_offset = 0x{:08x}, unit_length = 0x{:x}",
         length, format, version, unit_offset.0, unit_length,
     )?;
-    writeln!(w, "Offset     Name")?;
+    if is_gnu {
+        writeln!(w, "Offset     Linkage  Kind     Name")?;
+    } else {
+        writeln!(w, "Offset     Name")?;
+    }
     Ok(())
 }
 
@@ -2310,6 +2403,35 @@ fn dump_pub_entry<R: Reader, W: Write>(
     name: &R,
 ) -> Result<()> {
     writeln!(w, "0x{:08x} \"{}\"", offset.0, name.to_string_lossy()?)?;
+    Ok(())
+}
+
+fn dump_gnu_pub_entry<R: Reader, W: Write>(
+    w: &mut W,
+    offset: UnitOffset<R::Offset>,
+    is_static: bool,
+    kind: gimli::GdbIndexSymbolKind,
+    name: &R,
+) -> Result<()> {
+    writeln!(
+        w,
+        "0x{:08x} {:8} {:8} \"{}\"",
+        offset.0,
+        if is_static { "STATIC" } else { "EXTERNAL" },
+        match kind {
+            gimli::GDB_INDEX_SYMBOL_KIND_NONE => "NONE",
+            gimli::GDB_INDEX_SYMBOL_KIND_TYPE => "TYPE",
+            gimli::GDB_INDEX_SYMBOL_KIND_VARIABLE => "VARIABLE",
+            gimli::GDB_INDEX_SYMBOL_KIND_FUNCTION => "FUNCTION",
+            gimli::GDB_INDEX_SYMBOL_KIND_OTHER => "OTHER",
+            gimli::GDB_INDEX_SYMBOL_KIND_UNUSED5 => "UNUSED5",
+            gimli::GDB_INDEX_SYMBOL_KIND_UNUSED6 => "UNUSED6",
+            gimli::GDB_INDEX_SYMBOL_KIND_UNUSED7 => "UNUSED7",
+            _ => "UNKNOWN",
+        },
+        name.to_string_lossy()?
+    )?;
+
     Ok(())
 }
 

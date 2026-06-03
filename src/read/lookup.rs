@@ -1,4 +1,5 @@
 use crate::common::{DebugInfoOffset, Format};
+use crate::constants::GdbIndexSymbolKind;
 use crate::read::{Error, Reader, ReaderOffset, Result, UnitOffset};
 
 // Common parsing for the `.debug_pub*` sections (DWARF v4 Section 6.1.1, Lookup by Name).
@@ -12,16 +13,17 @@ pub(crate) struct DebugPubSet<R: Reader> {
 }
 
 impl<R: Reader> DebugPubSet<R> {
-    pub(crate) fn sets(&self) -> PubSetIter<R> {
+    pub(crate) fn sets(&self, is_gnu: bool) -> PubSetIter<R> {
         PubSetIter {
             input: self.section.clone(),
+            is_gnu,
         }
     }
 
-    pub(crate) fn items(&self) -> PubSetEntryIter<R> {
+    pub(crate) fn items(&self, is_gnu: bool) -> PubSetEntryIter<R> {
         PubSetEntryIter {
             current_set: None,
-            sets: self.sets(),
+            sets: self.sets(is_gnu),
         }
     }
 }
@@ -29,6 +31,7 @@ impl<R: Reader> DebugPubSet<R> {
 #[derive(Clone, Debug)]
 pub(crate) struct PubSetIter<R: Reader> {
     input: R,
+    is_gnu: bool,
 }
 
 impl<R: Reader> PubSetIter<R> {
@@ -43,7 +46,11 @@ impl<R: Reader> PubSetIter<R> {
             return Ok(None);
         }
         match PubSetHeader::parse(&mut self.input) {
-            Ok((header, entries)) => Ok(Some(PubSet { header, entries })),
+            Ok((header, entries)) => Ok(Some(PubSet {
+                header,
+                entries,
+                is_gnu: self.is_gnu,
+            })),
             Err(e) => {
                 self.input.empty();
                 Err(e)
@@ -73,7 +80,7 @@ impl<R: Reader> PubSetEntryIter<R> {
             if let Some(set) = &mut self.current_set
                 && !set.entries.is_empty()
             {
-                match PubSetEntry::parse(&mut set.entries, &set.header) {
+                match PubSetEntry::parse(&mut set.entries, &set.header, set.is_gnu) {
                     Ok(Some(entry)) => return Ok(Some(entry)),
                     Ok(None) => {
                         self.current_set = None;
@@ -98,6 +105,7 @@ impl<R: Reader> PubSetEntryIter<R> {
 pub(crate) struct PubSet<R: Reader> {
     pub(crate) header: PubSetHeader<R::Offset>,
     entries: R,
+    is_gnu: bool,
 }
 
 impl<R: Reader> PubSet<R> {
@@ -106,7 +114,10 @@ impl<R: Reader> PubSet<R> {
         // Empty set iterator.
         let mut set_input = self.entries.clone();
         set_input.empty();
-        let sets = PubSetIter { input: set_input };
+        let sets = PubSetIter {
+            input: set_input,
+            is_gnu: self.is_gnu,
+        };
 
         PubSetEntryIter {
             sets,
@@ -154,22 +165,37 @@ pub(crate) struct PubSetEntry<R: Reader> {
     pub(crate) unit_header_offset: DebugInfoOffset<R::Offset>,
     pub(crate) die_offset: UnitOffset<R::Offset>,
     pub(crate) name: R,
+    flags: u8,
 }
 
 impl<R: Reader> PubSetEntry<R> {
+    pub(crate) fn is_static(&self) -> bool {
+        self.flags & 0x80 != 0
+    }
+
+    pub(crate) fn kind(&self) -> GdbIndexSymbolKind {
+        GdbIndexSymbolKind((self.flags >> 4) & 7)
+    }
+
     /// Parse a single set entry. Return `None` for the null entry.
-    fn parse(input: &mut R, header: &PubSetHeader<R::Offset>) -> Result<Option<PubSetEntry<R>>> {
+    fn parse(
+        input: &mut R,
+        header: &PubSetHeader<R::Offset>,
+        is_gnu: bool,
+    ) -> Result<Option<PubSetEntry<R>>> {
         let offset = input.read_offset(header.format)?;
         if offset.into_u64() == 0 {
             input.empty();
-            Ok(None)
-        } else {
-            let name = input.read_null_terminated_slice()?;
-            Ok(Some(PubSetEntry {
-                die_offset: UnitOffset(offset),
-                name,
-                unit_header_offset: header.unit_offset,
-            }))
+            return Ok(None);
         }
+
+        let flags = if is_gnu { input.read_u8()? } else { 0 };
+        let name = input.read_null_terminated_slice()?;
+        Ok(Some(PubSetEntry {
+            die_offset: UnitOffset(offset),
+            name,
+            flags,
+            unit_header_offset: header.unit_offset,
+        }))
     }
 }
