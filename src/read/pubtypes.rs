@@ -1,53 +1,35 @@
 use crate::common::{DebugInfoOffset, SectionId};
 use crate::endianity::Endianity;
-use crate::read::lookup::{DebugLookup, LookupEntryIter, PubStuffEntry, PubStuffParser};
+use crate::read::lookup::{DebugPubSet, PubSetEntry, PubSetEntryIter};
 use crate::read::{EndianSlice, Reader, Result, Section, UnitOffset};
 
 /// A single parsed pubtype.
 #[derive(Debug, Clone)]
-pub struct PubTypesEntry<R: Reader> {
-    unit_header_offset: DebugInfoOffset<R::Offset>,
-    die_offset: UnitOffset<R::Offset>,
-    name: R,
-}
+pub struct PubTypesEntry<R: Reader>(PubSetEntry<R>);
 
 impl<R: Reader> PubTypesEntry<R> {
     /// Returns the name of the type this entry refers to.
     pub fn name(&self) -> &R {
-        &self.name
+        &self.0.name
     }
 
     /// Returns the offset into the .debug_info section for the header of the compilation unit
     /// which contains the type with this name.
     pub fn unit_header_offset(&self) -> DebugInfoOffset<R::Offset> {
-        self.unit_header_offset
+        self.0.unit_header_offset
     }
 
     /// Returns the offset into the compilation unit for the debugging information entry which
     /// the type with this name.
     pub fn die_offset(&self) -> UnitOffset<R::Offset> {
-        self.die_offset
-    }
-}
-
-impl<R: Reader> PubStuffEntry<R> for PubTypesEntry<R> {
-    fn new(
-        die_offset: UnitOffset<R::Offset>,
-        name: R,
-        unit_header_offset: DebugInfoOffset<R::Offset>,
-    ) -> Self {
-        PubTypesEntry {
-            unit_header_offset,
-            die_offset,
-            name,
-        }
+        self.0.die_offset
     }
 }
 
 /// The `DebugPubTypes` struct represents the DWARF public types information
 /// found in the `.debug_info` section.
 #[derive(Debug, Clone)]
-pub struct DebugPubTypes<R: Reader>(DebugLookup<R, PubStuffParser<R, PubTypesEntry<R>>>);
+pub struct DebugPubTypes<R: Reader>(DebugPubSet<R>);
 
 impl<'input, Endian> DebugPubTypes<EndianSlice<'input, Endian>>
 where
@@ -68,8 +50,8 @@ where
     /// let debug_pubtypes =
     ///     DebugPubTypes::new(read_debug_pubtypes_somehow(), LittleEndian);
     /// ```
-    pub fn new(debug_pubtypes_section: &'input [u8], endian: Endian) -> Self {
-        Self::from(EndianSlice::new(debug_pubtypes_section, endian))
+    pub fn new(section: &'input [u8], endian: Endian) -> Self {
+        Self::from(EndianSlice::new(section, endian))
     }
 }
 
@@ -100,19 +82,19 @@ impl<R: Reader> Section<R> for DebugPubTypes<R> {
     }
 
     fn reader(&self) -> &R {
-        self.0.reader()
+        &self.0.section
     }
 }
 
 impl<R: Reader> From<R> for DebugPubTypes<R> {
-    fn from(debug_pubtypes_section: R) -> Self {
-        DebugPubTypes(DebugLookup::from(debug_pubtypes_section))
+    fn from(section: R) -> Self {
+        DebugPubTypes(DebugPubSet { section })
     }
 }
 
 /// An iterator over the pubtypes from a `.debug_pubtypes` section.
 #[derive(Debug, Clone)]
-pub struct PubTypesEntryIter<R: Reader>(LookupEntryIter<R, PubStuffParser<R, PubTypesEntry<R>>>);
+pub struct PubTypesEntryIter<R: Reader>(PubSetEntryIter<R>);
 
 impl<R: Reader> PubTypesEntryIter<R> {
     /// Advance the iterator and return the next pubtype.
@@ -123,7 +105,7 @@ impl<R: Reader> PubTypesEntryIter<R> {
     /// then this error is returned as `Err(e)`, and all subsequent calls return
     /// `Ok(None)`.
     pub fn next(&mut self) -> Result<Option<PubTypesEntry<R>>> {
-        self.0.next()
+        self.0.next().map(|x| x.map(PubTypesEntry))
     }
 }
 
@@ -133,7 +115,7 @@ impl<R: Reader> fallible_iterator::FallibleIterator for PubTypesEntryIter<R> {
     type Error = crate::read::Error;
 
     fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
-        self.0.next()
+        self.next()
     }
 }
 
@@ -141,6 +123,6 @@ impl<R: Reader> Iterator for PubTypesEntryIter<R> {
     type Item = Result<PubTypesEntry<R>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().transpose()
+        self.next().transpose()
     }
 }

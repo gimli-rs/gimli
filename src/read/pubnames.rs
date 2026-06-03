@@ -1,53 +1,35 @@
 use crate::common::{DebugInfoOffset, SectionId};
 use crate::endianity::Endianity;
-use crate::read::lookup::{DebugLookup, LookupEntryIter, PubStuffEntry, PubStuffParser};
+use crate::read::lookup::{DebugPubSet, PubSetEntry, PubSetEntryIter};
 use crate::read::{EndianSlice, Reader, Result, Section, UnitOffset};
 
 /// A single parsed pubname.
 #[derive(Debug, Clone)]
-pub struct PubNamesEntry<R: Reader> {
-    unit_header_offset: DebugInfoOffset<R::Offset>,
-    die_offset: UnitOffset<R::Offset>,
-    name: R,
-}
+pub struct PubNamesEntry<R: Reader>(PubSetEntry<R>);
 
 impl<R: Reader> PubNamesEntry<R> {
     /// Returns the name this entry refers to.
     pub fn name(&self) -> &R {
-        &self.name
+        &self.0.name
     }
 
     /// Returns the offset into the .debug_info section for the header of the compilation unit
     /// which contains this name.
     pub fn unit_header_offset(&self) -> DebugInfoOffset<R::Offset> {
-        self.unit_header_offset
+        self.0.unit_header_offset
     }
 
     /// Returns the offset into the compilation unit for the debugging information entry which
     /// has this name.
     pub fn die_offset(&self) -> UnitOffset<R::Offset> {
-        self.die_offset
-    }
-}
-
-impl<R: Reader> PubStuffEntry<R> for PubNamesEntry<R> {
-    fn new(
-        die_offset: UnitOffset<R::Offset>,
-        name: R,
-        unit_header_offset: DebugInfoOffset<R::Offset>,
-    ) -> Self {
-        PubNamesEntry {
-            unit_header_offset,
-            die_offset,
-            name,
-        }
+        self.0.die_offset
     }
 }
 
 /// The `DebugPubNames` struct represents the DWARF public names information
 /// found in the `.debug_pubnames` section.
 #[derive(Debug, Clone)]
-pub struct DebugPubNames<R: Reader>(DebugLookup<R, PubStuffParser<R, PubNamesEntry<R>>>);
+pub struct DebugPubNames<R: Reader>(DebugPubSet<R>);
 
 impl<'input, Endian> DebugPubNames<EndianSlice<'input, Endian>>
 where
@@ -68,8 +50,8 @@ where
     /// let debug_pubnames =
     ///     DebugPubNames::new(read_debug_pubnames_section_somehow(), LittleEndian);
     /// ```
-    pub fn new(debug_pubnames_section: &'input [u8], endian: Endian) -> Self {
-        Self::from(EndianSlice::new(debug_pubnames_section, endian))
+    pub fn new(section: &'input [u8], endian: Endian) -> Self {
+        Self::from(EndianSlice::new(section, endian))
     }
 }
 
@@ -100,19 +82,19 @@ impl<R: Reader> Section<R> for DebugPubNames<R> {
     }
 
     fn reader(&self) -> &R {
-        self.0.reader()
+        &self.0.section
     }
 }
 
 impl<R: Reader> From<R> for DebugPubNames<R> {
-    fn from(debug_pubnames_section: R) -> Self {
-        DebugPubNames(DebugLookup::from(debug_pubnames_section))
+    fn from(section: R) -> Self {
+        DebugPubNames(DebugPubSet { section })
     }
 }
 
 /// An iterator over the pubnames from a `.debug_pubnames` section.
 #[derive(Debug, Clone)]
-pub struct PubNamesEntryIter<R: Reader>(LookupEntryIter<R, PubStuffParser<R, PubNamesEntry<R>>>);
+pub struct PubNamesEntryIter<R: Reader>(PubSetEntryIter<R>);
 
 impl<R: Reader> PubNamesEntryIter<R> {
     /// Advance the iterator and return the next pubname.
@@ -123,7 +105,7 @@ impl<R: Reader> PubNamesEntryIter<R> {
     /// then this error is returned as `Err(e)`, and all subsequent calls return
     /// `Ok(None)`.
     pub fn next(&mut self) -> Result<Option<PubNamesEntry<R>>> {
-        self.0.next()
+        self.0.next().map(|x| x.map(PubNamesEntry))
     }
 }
 
@@ -133,7 +115,7 @@ impl<R: Reader> fallible_iterator::FallibleIterator for PubNamesEntryIter<R> {
     type Error = crate::read::Error;
 
     fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
-        self.0.next()
+        self.next()
     }
 }
 
@@ -141,6 +123,6 @@ impl<R: Reader> Iterator for PubNamesEntryIter<R> {
     type Item = Result<PubNamesEntry<R>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().transpose()
+        self.next().transpose()
     }
 }
