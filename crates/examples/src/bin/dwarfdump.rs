@@ -183,16 +183,17 @@ impl<'a, R: gimli::Reader<Offset = usize> + Send + Sync> Reader for Relocate<'a,
 
 #[derive(Default)]
 struct Flags<'a> {
-    eh_frame: bool,
-    goff: bool,
+    addr: bool,
+    aranges: bool,
     info: bool,
-    types: bool,
     line: bool,
+    names: bool,
     pubnames: bool,
     pubtypes: bool,
-    aranges: bool,
-    addr: bool,
-    names: bool,
+    types: bool,
+    eh_frame: bool,
+
+    goff: bool,
     dwo: bool,
     dwp: bool,
     dwo_parent: Option<object::File<'a>>,
@@ -210,20 +211,17 @@ fn print_usage(opts: &getopts::Options) -> ! {
 
 fn main() {
     let mut opts = getopts::Options::new();
-    opts.optflag(
-        "",
-        "eh-frame",
-        "print .eh-frame exception handling frame information",
-    );
     opts.optflag("G", "", "show global die offsets");
     opts.optflag("i", "", "print .debug_info and .debug_types sections");
-    opts.optflagopt("", "debug-info", "print .debug_info section", "OFFSET");
-    opts.optflag("l", "", "print .debug_line section");
-    opts.optflag("p", "", "print .debug_pubnames section");
-    opts.optflag("r", "", "print .debug_aranges section");
-    opts.optflag("y", "", "print .debug_pubtypes section");
     opts.optflag("", "debug-addr", "print .debug_addr section");
+    opts.optflag("r", "debug-aranges", "print .debug_aranges section");
+    opts.optflagopt("", "debug-info", "print .debug_info section", "OFFSET");
+    opts.optflag("l", "debug-line", "print .debug_line section");
     opts.optflag("", "debug-names", "print .debug_names section");
+    opts.optflag("p", "debug-pubnames", "print .debug_pubnames section");
+    opts.optflag("y", "debug-pubtypes", "print .debug_pubtypes section");
+    opts.optflag("", "debug-types", "print .debug_types section");
+    opts.optflag("", "eh-frame", "print .eh_frame section");
     opts.optflag(
         "",
         "dwo",
@@ -262,16 +260,20 @@ fn main() {
 
     let mut all = true;
     let mut flags = Flags::default();
-    if matches.opt_present("eh-frame") {
-        flags.eh_frame = true;
-        all = false;
-    }
     if matches.opt_present("G") {
         flags.goff = true;
     }
     if matches.opt_present("i") {
         flags.info = true;
         flags.types = true;
+        all = false;
+    }
+    if matches.opt_present("debug-addr") {
+        flags.addr = true;
+        all = false;
+    }
+    if matches.opt_present("debug-aranges") {
+        flags.aranges = true;
         all = false;
     }
     if matches.opt_present("debug-info") {
@@ -290,28 +292,28 @@ fn main() {
         }
         all = false;
     }
-    if matches.opt_present("l") {
+    if matches.opt_present("debug-line") {
         flags.line = true;
-        all = false;
-    }
-    if matches.opt_present("p") {
-        flags.pubnames = true;
-        all = false;
-    }
-    if matches.opt_present("y") {
-        flags.pubtypes = true;
-        all = false;
-    }
-    if matches.opt_present("r") {
-        flags.aranges = true;
-        all = false;
-    }
-    if matches.opt_present("debug-addr") {
-        flags.addr = true;
         all = false;
     }
     if matches.opt_present("debug-names") {
         flags.names = true;
+        all = false;
+    }
+    if matches.opt_present("debug-pubnames") {
+        flags.pubnames = true;
+        all = false;
+    }
+    if matches.opt_present("debug-pubtypes") {
+        flags.pubtypes = true;
+        all = false;
+    }
+    if matches.opt_present("debug-types") {
+        flags.types = true;
+        all = false;
+    }
+    if matches.opt_present("eh-frame") {
+        flags.eh_frame = true;
         all = false;
     }
     if matches.opt_present("dwo") {
@@ -326,14 +328,14 @@ fn main() {
     if all {
         // .eh_frame is excluded even when printing all information.
         // cosmetic flags like -G must be set explicitly too.
+        flags.addr = true;
+        flags.aranges = true;
         flags.info = true;
-        flags.types = true;
         flags.line = true;
+        flags.names = true;
         flags.pubnames = true;
         flags.pubtypes = true;
-        flags.aranges = true;
-        flags.addr = true;
-        flags.names = true;
+        flags.types = true;
     }
     flags.match_units = if let Some(r) = matches.opt_str("u") {
         match Regex::new(&r) {
@@ -550,10 +552,6 @@ where
 
     dwarf.populate_abbreviations_cache(gimli::AbbreviationsCacheStrategy::All);
 
-    if flags.eh_frame {
-        let eh_frame = gimli::EhFrame::load(load_section).unwrap();
-        dump_eh_frame(w, file, eh_frame)?;
-    }
     if flags.info {
         dump_info(w, &dwarf, dwo_parent_units, flags)?;
     }
@@ -571,14 +569,18 @@ where
     }
     if flags.pubnames {
         let debug_pubnames = &gimli::Section::load(load_section).unwrap();
-        dump_pubnames(w, debug_pubnames, &dwarf.debug_info)?;
+        dump_pubnames(w, debug_pubnames)?;
     }
     if flags.pubtypes {
         let debug_pubtypes = &gimli::Section::load(load_section).unwrap();
-        dump_pubtypes(w, debug_pubtypes, &dwarf.debug_info)?;
+        dump_pubtypes(w, debug_pubtypes)?;
     }
     if flags.names {
         dump_names(w, &dwarf)?;
+    }
+    if flags.eh_frame {
+        let eh_frame = gimli::EhFrame::load(load_section).unwrap();
+        dump_eh_frame(w, file, eh_frame)?;
     }
     w.flush()?;
     Ok(())
@@ -2240,31 +2242,23 @@ fn dump_line_program<R: Reader, W: Write>(w: &mut W, unit: gimli::UnitRef<R>) ->
 fn dump_pubnames<R: Reader, W: Write>(
     w: &mut W,
     debug_pubnames: &gimli::DebugPubNames<R>,
-    debug_info: &gimli::DebugInfo<R>,
 ) -> Result<()> {
     writeln!(w, "\n.debug_pubnames")?;
 
-    let mut cu_offset;
-    let mut cu_die_offset = gimli::DebugInfoOffset(0);
-    let mut prev_cu_offset = None;
-    let mut pubnames = debug_pubnames.items();
-    while let Some(pubname) = pubnames.next()? {
-        cu_offset = pubname.unit_header_offset();
-        if Some(cu_offset) != prev_cu_offset {
-            let cu = debug_info.header_from_offset(cu_offset)?;
-            cu_die_offset = gimli::DebugInfoOffset(cu_offset.0 + cu.header_size());
-            prev_cu_offset = Some(cu_offset);
-        }
-        let die_in_cu = pubname.die_offset();
-        let die_in_sect = cu_offset.0 + die_in_cu.0;
-        writeln!(w,
-            "global die-in-sect 0x{:08x}, cu-in-sect 0x{:08x}, die-in-cu 0x{:08x}, cu-header-in-sect 0x{:08x} '{}'",
-            die_in_sect,
-            cu_die_offset.0,
-            die_in_cu.0,
-            cu_offset.0,
-            pubname.name().to_string_lossy()?
+    let mut sets = debug_pubnames.sets();
+    while let Some(set) = sets.next()? {
+        dump_pub_set_header(
+            w,
+            set.format(),
+            set.version(),
+            set.unit_header_offset(),
+            set.unit_length(),
+            set.length(),
         )?;
+        let mut entries = set.items();
+        while let Some(entry) = entries.next()? {
+            dump_pub_entry(w, entry.die_offset(), entry.name())?;
+        }
     }
     Ok(())
 }
@@ -2272,32 +2266,50 @@ fn dump_pubnames<R: Reader, W: Write>(
 fn dump_pubtypes<R: Reader, W: Write>(
     w: &mut W,
     debug_pubtypes: &gimli::DebugPubTypes<R>,
-    debug_info: &gimli::DebugInfo<R>,
 ) -> Result<()> {
     writeln!(w, "\n.debug_pubtypes")?;
 
-    let mut cu_offset;
-    let mut cu_die_offset = gimli::DebugInfoOffset(0);
-    let mut prev_cu_offset = None;
-    let mut pubtypes = debug_pubtypes.items();
-    while let Some(pubtype) = pubtypes.next()? {
-        cu_offset = pubtype.unit_header_offset();
-        if Some(cu_offset) != prev_cu_offset {
-            let cu = debug_info.header_from_offset(cu_offset)?;
-            cu_die_offset = gimli::DebugInfoOffset(cu_offset.0 + cu.header_size());
-            prev_cu_offset = Some(cu_offset);
-        }
-        let die_in_cu = pubtype.die_offset();
-        let die_in_sect = cu_offset.0 + die_in_cu.0;
-        writeln!(w,
-            "pubtype die-in-sect 0x{:08x}, cu-in-sect 0x{:08x}, die-in-cu 0x{:08x}, cu-header-in-sect 0x{:08x} '{}'",
-            die_in_sect,
-            cu_die_offset.0,
-            die_in_cu.0,
-            cu_offset.0,
-            pubtype.name().to_string_lossy()?
+    let mut sets = debug_pubtypes.sets();
+    while let Some(set) = sets.next()? {
+        dump_pub_set_header(
+            w,
+            set.format(),
+            set.version(),
+            set.unit_header_offset(),
+            set.unit_length(),
+            set.length(),
         )?;
+        let mut entries = set.items();
+        while let Some(entry) = entries.next()? {
+            dump_pub_entry(w, entry.die_offset(), entry.name())?;
+        }
     }
+    Ok(())
+}
+
+fn dump_pub_set_header<W: Write>(
+    w: &mut W,
+    format: gimli::Format,
+    version: u16,
+    unit_offset: gimli::DebugInfoOffset,
+    unit_length: usize,
+    length: usize,
+) -> Result<()> {
+    writeln!(
+        w,
+        "\nlength = 0x{:x}, format = {:?}, version = {}, unit_offset = 0x{:08x}, unit_length = 0x{:x}",
+        length, format, version, unit_offset.0, unit_length,
+    )?;
+    writeln!(w, "Offset     Name")?;
+    Ok(())
+}
+
+fn dump_pub_entry<R: Reader, W: Write>(
+    w: &mut W,
+    offset: UnitOffset<R::Offset>,
+    name: &R,
+) -> Result<()> {
+    writeln!(w, "0x{:08x} \"{}\"", offset.0, name.to_string_lossy()?)?;
     Ok(())
 }
 

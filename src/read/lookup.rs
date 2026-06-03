@@ -12,18 +12,52 @@ pub(crate) struct DebugPubSet<R: Reader> {
 }
 
 impl<R: Reader> DebugPubSet<R> {
+    pub(crate) fn sets(&self) -> PubSetIter<R> {
+        PubSetIter {
+            input: self.section.clone(),
+        }
+    }
+
     pub(crate) fn items(&self) -> PubSetEntryIter<R> {
         PubSetEntryIter {
             current_set: None,
-            remaining_input: self.section.clone(),
+            sets: self.sets(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PubSetIter<R: Reader> {
+    input: R,
+}
+
+impl<R: Reader> PubSetIter<R> {
+    /// Advance the iterator and return the next set.
+    ///
+    /// Returns the newly parsed set as `Ok(Some(PubSet))`. Returns `Ok(None)` when
+    /// iteration is complete. If an error occurs while parsing the next header,
+    /// then this error is returned as `Err(e)`, and all subsequent calls return
+    /// `Ok(None)`.
+    pub(crate) fn next(&mut self) -> Result<Option<PubSet<R>>> {
+        if self.input.is_empty() {
+            return Ok(None);
+        }
+        match PubSetHeader::parse(&mut self.input) {
+            Ok((header, entries)) => Ok(Some(PubSet { header, entries })),
+            Err(e) => {
+                self.input.empty();
+                Err(e)
+            }
         }
     }
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct PubSetEntryIter<R: Reader> {
-    current_set: Option<(R, PubSetHeader<R::Offset>)>, // Only none at the very beginning and end.
-    remaining_input: R,
+    // Only none at the very beginning and end.
+    // PubSet::entries is consumed as we iterate.
+    current_set: Option<PubSet<R>>,
+    sets: PubSetIter<R>,
 }
 
 impl<R: Reader> PubSetEntryIter<R> {
@@ -36,50 +70,63 @@ impl<R: Reader> PubSetEntryIter<R> {
     /// `Ok(None)`.
     pub(crate) fn next(&mut self) -> Result<Option<PubSetEntry<R>>> {
         loop {
-            if let Some((ref mut input, ref header)) = self.current_set
-                && !input.is_empty()
+            if let Some(set) = &mut self.current_set
+                && !set.entries.is_empty()
             {
-                match PubSetEntry::parse(input, header) {
+                match PubSetEntry::parse(&mut set.entries, &set.header) {
                     Ok(Some(entry)) => return Ok(Some(entry)),
-                    Ok(None) => {}
+                    Ok(None) => {
+                        self.current_set = None;
+                    }
                     Err(e) => {
-                        input.empty();
-                        self.remaining_input.empty();
+                        self.sets.input.empty();
+                        self.current_set = None;
                         return Err(e);
                     }
                 }
             }
-            if self.remaining_input.is_empty() {
-                self.current_set = None;
-                return Ok(None);
-            }
-            match PubSetHeader::parse(&mut self.remaining_input) {
-                Ok(set) => {
-                    self.current_set = Some(set);
-                }
-                Err(e) => {
-                    self.current_set = None;
-                    self.remaining_input.empty();
-                    return Err(e);
-                }
+            match self.sets.next() {
+                Ok(Some(set)) => self.current_set = Some(set),
+                Ok(None) => return Ok(None),
+                Err(e) => return Err(e),
             }
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
+pub(crate) struct PubSet<R: Reader> {
+    pub(crate) header: PubSetHeader<R::Offset>,
+    entries: R,
+}
+
+impl<R: Reader> PubSet<R> {
+    /// Return an iterator over just the entries in this set.
+    pub(crate) fn items(&self) -> PubSetEntryIter<R> {
+        // Empty set iterator.
+        let mut set_input = self.entries.clone();
+        set_input.empty();
+        let sets = PubSetIter { input: set_input };
+
+        PubSetEntryIter {
+            sets,
+            current_set: Some(self.clone()),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct PubSetHeader<T = usize> {
-    format: Format,
-    length: T,
-    version: u16,
-    unit_offset: DebugInfoOffset<T>,
-    unit_length: T,
+    pub(crate) format: Format,
+    pub(crate) length: T,
+    pub(crate) version: u16,
+    pub(crate) unit_offset: DebugInfoOffset<T>,
+    pub(crate) unit_length: T,
 }
 
 impl<T: ReaderOffset> PubSetHeader<T> {
-    /// Parse a set header. Returns a tuple of the entry data to be parsed for
-    /// this set, and the newly created `PubSetHeader` struct.
-    fn parse<R: Reader<Offset = T>>(input: &mut R) -> Result<(R, PubSetHeader<R::Offset>)> {
+    /// Parse a set header. Returns a tuple of the set header and the entry data.
+    fn parse<R: Reader<Offset = T>>(input: &mut R) -> Result<(PubSetHeader<R::Offset>, R)> {
         let (length, format) = input.read_initial_length()?;
         let mut rest = input.split(length)?;
 
@@ -98,7 +145,7 @@ impl<T: ReaderOffset> PubSetHeader<T> {
             unit_offset,
             unit_length,
         };
-        Ok((rest, header))
+        Ok((header, rest))
     }
 }
 
