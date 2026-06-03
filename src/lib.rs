@@ -35,6 +35,7 @@
 // Style.
 #![allow(clippy::bool_to_int_with_if)]
 #![allow(clippy::collapsible_else_if)]
+#![allow(clippy::collapsible_match)]
 #![allow(clippy::comparison_chain)]
 #![allow(clippy::manual_range_contains)]
 #![allow(clippy::needless_late_init)]

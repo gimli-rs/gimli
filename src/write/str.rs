@@ -131,15 +131,15 @@ mod tests {
     fn test_string_table() {
         let mut strings = StringTable::default();
         assert_eq!(strings.count(), 0);
-        let id1 = strings.add(&b"one"[..]);
-        let id2 = strings.add(&b"two"[..]);
-        let id3 = strings.add(&[]);
-        assert_eq!(strings.add(&b"one"[..]), id1);
-        assert_eq!(strings.add(&b"two"[..]), id2);
-        assert_eq!(strings.add(&[]), id3);
-        assert_eq!(strings.get(id1), &b"one"[..]);
-        assert_eq!(strings.get(id2), &b"two"[..]);
-        assert_eq!(strings.get(id3), &[]);
+        let id1 = strings.add(b"one");
+        let id2 = strings.add(b"two");
+        let id3 = strings.add([]);
+        assert_eq!(strings.add(b"one"), id1);
+        assert_eq!(strings.add(b"two"), id2);
+        assert_eq!(strings.add([]), id3);
+        assert_eq!(strings.get(id1), b"one");
+        assert_eq!(strings.get(id2), b"two");
+        assert_eq!(strings.get(id3), []);
         assert_eq!(strings.count(), 3);
         assert_eq!(strings.offset(id1), DebugStrOffset(0));
         assert_eq!(strings.offset(id2), DebugStrOffset(4));
@@ -153,8 +153,8 @@ mod tests {
         let str1 = read_debug_str.get_str(strings.offset(id1)).unwrap();
         let str2 = read_debug_str.get_str(strings.offset(id2)).unwrap();
         let str3 = read_debug_str.get_str(strings.offset(id3)).unwrap();
-        assert_eq!(str1.slice(), &b"one"[..]);
-        assert_eq!(str2.slice(), &b"two"[..]);
+        assert_eq!(str1.slice(), b"one");
+        assert_eq!(str2.slice(), b"two");
         assert_eq!(str3.slice(), b"");
     }
 }

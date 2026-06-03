@@ -5472,7 +5472,7 @@ mod tests {
         let mut expected = ctx.clone();
         expected.set_cfa(CfaRule::RegisterAndOffset {
             register: Register(42),
-            offset: 36 * cie.data_alignment_factor as i64,
+            offset: 36 * cie.data_alignment_factor,
         });
         let instructions = [(
             Ok(false),
@@ -5851,7 +5851,7 @@ mod tests {
         expected
             .set_register_rule(
                 crate::AArch64::RA_SIGN_STATE,
-                RegisterRule::Offset(cie.data_alignment_factor as i64),
+                RegisterRule::Offset(cie.data_alignment_factor),
             )
             .unwrap();
         let instructions = [
