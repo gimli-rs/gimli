@@ -42,7 +42,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     };
 
     // Try to load a .dwp file.
-    let mut dwp_path = read_path.clone();
+    let mut dwp_path = read_path;
     dwp_path.push(".dwp");
     let dwp_file = fs::File::open(&dwp_path).ok();
     let dwp_mmap = dwp_file
