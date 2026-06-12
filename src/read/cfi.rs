@@ -1136,11 +1136,33 @@ where
     }))
 }
 
-/// We support the z-style augmentation [defined by `.eh_frame`][ehframe].
+/// We support the z-style augmentation [defined by `.eh_frame`][ehframe],
+/// and the bare `S` signal-frame augmentation emitted by GNU as for
+/// `.debug_frame`.
+///
+/// In the z-style augmentation format, a leading `z` means that the CIE and
+/// its FDEs carry augmentation data with a ULEB128 length prefix. Augmentation
+/// characters that consume data, such as `L`, `P`, and `R`, are only accepted
+/// in this z-style format.
+///
+/// GNU as has emitted a bare `S` augmentation for `.debug_frame` signal frames
+/// since 2006. This is not specified by DWARF or the LSB `.eh_frame`
+/// augmentation documentation, but it is de-facto GCC toolchain behavior.
+/// `S` is payload-free: it only marks the frame as a signal trampoline, so it
+/// is safe to handle without reading z-style CIE or FDE augmentation data.
+///
+/// Only payload-free augmentation flags can be handled without a leading `z`.
+/// Currently this means bare `S`. Other payload-free flags, such as `B` or `G`,
+/// could be handled the same way if support is added, but data-bearing
+/// augmentations such as `L`, `P`, and `R` require z-style augmentation data
+/// and are not accepted bare.
 ///
 /// [ehframe]: https://refspecs.linuxfoundation.org/LSB_3.0.0/LSB-Core-generic/LSB-Core-generic/ehframechpt.html
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Augmentation {
+    /// True if this is a z-style augmentation with augmentation data.
+    z_augmentation: bool,
+
     /// > A 'L' may be present at any position after the first character of the
     /// > string. This character may only be present if 'z' is the first character
     /// > of the string. If present, it indicates the presence of one argument in
@@ -1169,6 +1191,9 @@ pub struct Augmentation {
     fde_address_encoding: Option<constants::DwEhPe>,
 
     /// True if this CIE's FDEs are trampolines for signal handlers.
+    ///
+    /// This may come from z-style `S` or from bare `S` as emitted by GNU as for
+    /// `.debug_frame`.
     is_signal_trampoline: bool,
 }
 
@@ -1202,6 +1227,7 @@ impl Augmentation {
                         return Err(Error::UnknownAugmentation);
                     }
 
+                    augmentation.z_augmentation = true;
                     let augmentation_length = input.read_uleb128().and_then(R::Offset::from_u64)?;
                     data = Some(input.split(augmentation_length)?);
                 }
@@ -1471,8 +1497,8 @@ impl<R: Reader> CommonInformationEntry<R> {
 
     /// Get the augmentation data, if any exists.
     ///
-    /// The only augmentation understood by `gimli` is that which is defined by
-    /// `.eh_frame`.
+    /// `gimli` understands the z-style augmentation defined by `.eh_frame`, and
+    /// bare `S` signal-frame augmentation in `.debug_frame`.
     pub fn augmentation(&self) -> Option<&Augmentation> {
         self.augmentation.as_ref()
     }
@@ -1702,7 +1728,9 @@ impl<R: Reader> FrameDescriptionEntry<R> {
         let (initial_address, address_range) = Self::parse_addresses(&mut rest, &cie, &parameters)?;
         parameters.func_base = Some(initial_address);
 
-        let aug_data = if let Some(ref augmentation) = cie.augmentation {
+        let aug_data = if let Some(ref augmentation) = cie.augmentation
+            && augmentation.z_augmentation
+        {
             Some(AugmentationData::parse(
                 augmentation,
                 &parameters,
@@ -6919,6 +6947,46 @@ mod tests {
     }
 
     #[test]
+    fn test_debug_frame_fde_bare_signal_trampoline_augmentation() {
+        let mut cie = make_test_cie();
+        cie.format = Format::Dwarf32;
+        cie.version = 4;
+
+        let end_of_cie = Label::new();
+
+        let kind = debug_frame_le();
+        let section = Section::with_endian(kind.endian())
+            .cie(kind, Some("S"), &mut cie)
+            .mark(&end_of_cie);
+
+        let mut fde = FrameDescriptionEntry {
+            offset: 0,
+            length: 0,
+            format: Format::Dwarf32,
+            cie: cie.clone(),
+            initial_address: 0xfeed_beef,
+            address_range: 999,
+            augmentation: None,
+            instructions: EndianSlice::new(&[], LittleEndian),
+        };
+
+        let section = section.fde(kind, 0, &mut fde);
+
+        section.start().set_const(0);
+        let section = section.get_contents().unwrap();
+        let debug_frame = kind.section(&section);
+        let section = EndianSlice::new(&section, LittleEndian);
+
+        let result = parse_fde(
+            debug_frame,
+            &mut section.range_from(end_of_cie.value().unwrap() as usize..),
+            UnwindSection::cie_from_offset,
+        );
+        let fde = result.expect("bare S augmentation should not require FDE augmentation data");
+        assert!(fde.is_signal_trampoline());
+    }
+
+    #[test]
     fn test_augmentation_parse_not_z_augmentation() {
         let augmentation = &mut EndianSlice::new(b"wtf", NativeEndian);
         let bases = Default::default();
@@ -6987,6 +7055,7 @@ mod tests {
         let aug_str = &mut EndianSlice::new(b"zL", LittleEndian);
 
         let augmentation = Augmentation {
+            z_augmentation: true,
             lsda: Some(constants::DW_EH_PE_uleb128),
             ..Default::default()
         };
@@ -7017,6 +7086,7 @@ mod tests {
         let aug_str = &mut EndianSlice::new(b"zP", LittleEndian);
 
         let augmentation = Augmentation {
+            z_augmentation: true,
             personality: Some((constants::DW_EH_PE_udata8, Pointer::Direct(0xf00d_f00d))),
             ..Default::default()
         };
@@ -7046,6 +7116,7 @@ mod tests {
         let aug_str = &mut EndianSlice::new(b"zR", LittleEndian);
 
         let augmentation = Augmentation {
+            z_augmentation: true,
             fde_address_encoding: Some(constants::DW_EH_PE_udata4),
             ..Default::default()
         };
@@ -7074,6 +7145,7 @@ mod tests {
         let aug_str = &mut EndianSlice::new(b"zS", LittleEndian);
 
         let augmentation = Augmentation {
+            z_augmentation: true,
             is_signal_trampoline: true,
             ..Default::default()
         };
@@ -7108,6 +7180,7 @@ mod tests {
         let aug_str = &mut EndianSlice::new(b"zLPRS", LittleEndian);
 
         let augmentation = Augmentation {
+            z_augmentation: true,
             lsda: Some(constants::DW_EH_PE_uleb128),
             personality: Some((constants::DW_EH_PE_udata8, Pointer::Direct(0x1bad_f00d))),
             fde_address_encoding: Some(constants::DW_EH_PE_uleb128),
@@ -7165,7 +7238,10 @@ mod tests {
         let mut cie = make_test_cie();
         cie.format = Format::Dwarf32;
         cie.version = 1;
-        cie.augmentation = Some(Augmentation::default());
+        cie.augmentation = Some(Augmentation {
+            z_augmentation: true,
+            ..Default::default()
+        });
 
         let mut fde = FrameDescriptionEntry {
             offset: 0,
@@ -7202,7 +7278,10 @@ mod tests {
         let mut cie = make_test_cie();
         cie.format = Format::Dwarf32;
         cie.version = 1;
-        cie.augmentation = Some(Augmentation::default());
+        cie.augmentation = Some(Augmentation {
+            z_augmentation: true,
+            ..Default::default()
+        });
         cie.augmentation.as_mut().unwrap().lsda = Some(constants::DW_EH_PE_absptr);
 
         let mut fde = FrameDescriptionEntry {
@@ -7242,7 +7321,10 @@ mod tests {
         let mut cie = make_test_cie();
         cie.format = Format::Dwarf32;
         cie.version = 1;
-        cie.augmentation = Some(Augmentation::default());
+        cie.augmentation = Some(Augmentation {
+            z_augmentation: true,
+            ..Default::default()
+        });
         cie.augmentation.as_mut().unwrap().lsda =
             Some(constants::DW_EH_PE_funcrel | constants::DW_EH_PE_absptr);
 
