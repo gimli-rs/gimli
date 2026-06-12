@@ -1136,7 +1136,26 @@ where
     }))
 }
 
-/// We support the z-style augmentation [defined by `.eh_frame`][ehframe].
+/// We support the z-style augmentation [defined by `.eh_frame`][ehframe],
+/// and the bare `S` signal-frame augmentation emitted by GNU as for
+/// `.debug_frame`.
+///
+/// In the z-style augmentation format, a leading `z` means that the CIE and
+/// its FDEs carry augmentation data with a ULEB128 length prefix. Augmentation
+/// characters that consume data, such as `L`, `P`, and `R`, are only accepted
+/// in this z-style format.
+///
+/// GNU as has emitted a bare `S` augmentation for `.debug_frame` signal frames
+/// since 2006. This is not specified by DWARF or the LSB `.eh_frame`
+/// augmentation documentation, but it is de-facto GCC toolchain behavior.
+/// `S` is payload-free: it only marks the frame as a signal trampoline, so it
+/// is safe to handle without reading z-style CIE or FDE augmentation data.
+///
+/// Only payload-free augmentation flags can be handled without a leading `z`.
+/// Currently this means bare `S`. Other payload-free flags, such as `B` or `G`,
+/// could be handled the same way if support is added, but data-bearing
+/// augmentations such as `L`, `P`, and `R` require z-style augmentation data
+/// and are not accepted bare.
 ///
 /// [ehframe]: https://refspecs.linuxfoundation.org/LSB_3.0.0/LSB-Core-generic/LSB-Core-generic/ehframechpt.html
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -1172,6 +1191,9 @@ pub struct Augmentation {
     fde_address_encoding: Option<constants::DwEhPe>,
 
     /// True if this CIE's FDEs are trampolines for signal handlers.
+    ///
+    /// This may come from z-style `S` or from bare `S` as emitted by GNU as for
+    /// `.debug_frame`.
     is_signal_trampoline: bool,
 }
 
@@ -1475,8 +1497,8 @@ impl<R: Reader> CommonInformationEntry<R> {
 
     /// Get the augmentation data, if any exists.
     ///
-    /// The only augmentation understood by `gimli` is that which is defined by
-    /// `.eh_frame`.
+    /// `gimli` understands the z-style augmentation defined by `.eh_frame`, and
+    /// bare `S` signal-frame augmentation in `.debug_frame`.
     pub fn augmentation(&self) -> Option<&Augmentation> {
         self.augmentation.as_ref()
     }
