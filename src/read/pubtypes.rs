@@ -299,6 +299,13 @@ impl<R: Reader> PubTypesEntry<R> {
     pub fn is_static(&self) -> bool {
         self.0.is_static()
     }
+
+    /// Return flags.
+    ///
+    /// Only .debug_gnu_pubtypes entries contain this value.
+    pub fn flags(&self) -> u8 {
+        self.0.flags()
+    }
 }
 
 #[cfg(test)]
@@ -439,6 +446,7 @@ mod tests {
             assert_eq!(entry.die_offset(), UnitOffset(0x02));
             assert_eq!(entry.kind(), GDB_INDEX_SYMBOL_KIND_TYPE);
             assert!(entry.is_static());
+            assert_eq!(entry.flags(), 0x90);
 
             assert!(matches!(items.next(), Ok(None)));
         }

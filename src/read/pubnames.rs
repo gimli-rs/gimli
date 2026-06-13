@@ -299,6 +299,13 @@ impl<R: Reader> PubNamesEntry<R> {
     pub fn is_static(&self) -> bool {
         self.0.is_static()
     }
+
+    /// Return flags.
+    ///
+    /// Only .debug_gnu_pubnames entries contain this value.
+    pub fn flags(&self) -> u8 {
+        self.0.flags()
+    }
 }
 
 #[cfg(test)]
@@ -423,7 +430,7 @@ mod tests {
                 .word(size, 0x20) // Unit length
                 // Entry 1
                 .word(size, 0x02)
-                .D8(0xb0) // static (0x80) | function (3 << 4)
+                .D8(0xb0) // static (0x80) | function (3 << 4) = 0xb0.
                 .append_bytes(b"foo\0")
                 // Entry 2
                 .word(size, 0x04)
@@ -443,11 +450,13 @@ mod tests {
             assert_eq!(entry.die_offset(), UnitOffset(0x02));
             assert_eq!(entry.kind(), GDB_INDEX_SYMBOL_KIND_FUNCTION);
             assert!(entry.is_static());
+            assert_eq!(entry.flags(), 0xb0);
 
             let entry = items.next().unwrap().unwrap();
             assert_eq!(entry.name(), &EndianSlice::new(b"bar", LittleEndian));
             assert_eq!(entry.kind(), GDB_INDEX_SYMBOL_KIND_VARIABLE);
             assert!(!entry.is_static());
+            assert_eq!(entry.flags(), 0x20);
 
             assert!(matches!(items.next(), Ok(None)));
         }

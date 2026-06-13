@@ -177,6 +177,10 @@ impl<R: Reader> PubSetEntry<R> {
         GdbIndexSymbolKind((self.flags >> 4) & 7)
     }
 
+    pub(crate) fn flags(&self) -> u8 {
+        self.flags
+    }
+
     /// Parse a single set entry. Return `None` for the null entry.
     fn parse(
         input: &mut R,
