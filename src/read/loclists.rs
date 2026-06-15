@@ -291,7 +291,11 @@ impl<R: Reader> LocationLists<R> {
         let input = &mut self.debug_loclists.section.clone();
         input.skip(base.0)?;
         input.skip(R::Offset::from_u64(
-            index.0.into_u64() * u64::from(format.word_size()),
+            index
+                .0
+                .into_u64()
+                .checked_mul(u64::from(format.word_size()))
+                .ok_or(Error::UnsupportedOffset)?,
         )?)?;
         input
             .read_offset(format)
