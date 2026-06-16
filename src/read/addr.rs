@@ -315,9 +315,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_pointer_width = "64")]
     fn test_get_address_index_overflow() {
-        // `index * address_size` must not overflow when the index is attacker
-        // controlled; it should be reported as an unsupported offset instead.
+        // `index * address_size` must not overflow; it should be reported as an
+        // unsupported offset instead.
         let buf = [0u8; 64];
         let debug_addr = DebugAddr::from(EndianSlice::new(&buf, LittleEndian));
         let index = DebugAddrIndex(0x2000_0000_0000_0000usize);

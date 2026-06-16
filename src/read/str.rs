@@ -294,9 +294,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_pointer_width = "64")]
     fn test_get_str_offset_index_overflow() {
-        // `index * word_size` must not overflow when the index is attacker
-        // controlled; it should be reported as an unsupported offset instead.
+        // `index * word_size` must not overflow; it should be reported as an
+        // unsupported offset instead.
         let buf = [0u8; 64];
         let debug_str_offsets = DebugStrOffsets::from(EndianSlice::new(&buf, LittleEndian));
         let index = DebugStrOffsetsIndex(0x4000_0000_0000_0000usize);
