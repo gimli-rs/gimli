@@ -31,7 +31,11 @@ impl<R: Reader> DebugAddr<R> {
         let input = &mut self.section.clone();
         input.skip(base.0)?;
         input.skip(R::Offset::from_u64(
-            index.0.into_u64() * u64::from(address_size),
+            index
+                .0
+                .into_u64()
+                .checked_mul(u64::from(address_size))
+                .ok_or(Error::UnsupportedOffset)?,
         )?)?;
         input.read_address(address_size)
     }
@@ -308,6 +312,20 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_get_address_index_overflow() {
+        // `index * address_size` must not overflow; it should be reported as an
+        // unsupported offset instead.
+        let buf = [0u8; 64];
+        let debug_addr = DebugAddr::from(EndianSlice::new(&buf, LittleEndian));
+        let index = DebugAddrIndex(0x2000_0000_0000_0000usize);
+        assert_eq!(
+            debug_addr.get_address(8, DebugAddrBase(0), index),
+            Err(Error::UnsupportedOffset)
+        );
     }
 
     #[test]
