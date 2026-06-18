@@ -338,6 +338,8 @@ pub enum Error {
     InvalidShiftExpression,
     /// The size of a deref expression must not be larger than the size of an address.
     InvalidDerefSize(u8),
+    /// The byte size of a `DW_OP_piece` is too large to convert to a bit size.
+    InvalidPieceSize(u64),
     /// An unknown DW_CFA_* instruction.
     UnknownCallFrameInstruction(constants::DwCfa),
     /// A `DW_CFA_set_loc` instruction moved the address backward.
@@ -515,6 +517,9 @@ impl fmt::Display for Error {
             }
             Error::InvalidDerefSize(val) => {
                 write!(f, "invalid deref size: {val}")
+            }
+            Error::InvalidPieceSize(val) => {
+                write!(f, "invalid piece size: {val}")
             }
             Error::UnknownCallFrameInstruction(val) => {
                 write!(f, "unknown call frame instruction: 0x{:x}", val.0)
