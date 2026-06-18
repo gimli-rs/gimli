@@ -655,8 +655,9 @@ where
             }
             constants::DW_OP_piece => {
                 let size = bytes.read_uleb128()?;
+                let size_in_bits = size.checked_mul(8).ok_or(Error::InvalidPieceSize(size))?;
                 Ok(Operation::Piece {
-                    size_in_bits: 8 * size,
+                    size_in_bits,
                     bit_offset: None,
                 })
             }
@@ -2617,12 +2618,11 @@ mod tests {
                 ]);
             }
 
-            // FIXME
-            if *value < !0u64 / 8 {
+            if let Some(size_in_bits) = value.checked_mul(8) {
                 inputs.push((
                     constants::DW_OP_piece,
                     Operation::Piece {
-                        size_in_bits: 8 * value,
+                        size_in_bits,
                         bit_offset: None,
                     },
                 ));
@@ -2638,6 +2638,27 @@ mod tests {
                 check_op_parse_simple(&input, expect, encoding);
             }
         }
+    }
+
+    #[test]
+    fn test_op_parse_piece_overflow() {
+        // Doesn't matter for this test.
+        let encoding = encoding4();
+
+        // A `DW_OP_piece` size is given in bytes and converted to bits.
+        // A byte size whose bit size does not fit in a `u64` must be rejected
+        // rather than overflowing the multiplication.
+        let size = !0u64 / 8 + 1;
+        let input = Section::with_endian(Endian::Little)
+            .D8(constants::DW_OP_piece.0)
+            .uleb(size)
+            .get_contents()
+            .unwrap();
+        let mut pc = EndianSlice::new(&input, LittleEndian);
+        assert_eq!(
+            Operation::parse(&mut pc, encoding),
+            Err(Error::InvalidPieceSize(size))
+        );
     }
 
     #[test]
