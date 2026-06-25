@@ -2,16 +2,71 @@
 
 --------------------------------------------------------------------------------
 
-## 0.33.1
+## 0.34.0
 
-~Released 2026/03/29.~ Yanked due to breaking change.
+Released 2026/06/25.
 
-### Breaking change
+### Breaking changes
+
+* Added `SectionId::DebugGnuPubNames` and `SectionId::DebugGnuPubTypes`.
+  [#883](https://github.com/gimli-rs/gimli/pull/883)
+
+* Added Wasm variants to `read::EvaluationResult`.
+  [#871](https://github.com/gimli-rs/gimli/pull/871)
+
+* Added `#[non_exhaustive]` and base address variants to `write::Error`.
+  [#870](https://github.com/gimli-rs/gimli/pull/870)
+
+### Changed
+
+* Changed `write` module to validate use of base addresses in range and location lists.
+  [#870](https://github.com/gimli-rs/gimli/pull/870)
+
+* Improved parsing performance for unsigned LEB128.
+  [#875](https://github.com/gimli-rs/gimli/pull/875)
+
+* Fixed `write::Writer::write_udata` to handle size 3.
+  [#877](https://github.com/gimli-rs/gimli/pull/877)
+
+* Improved parsing performance for `read::DebugLine::program`.
+  [#885](https://github.com/gimli-rs/gimli/pull/885)
+
+* Checked for arithmetic overflow when looking up indexed offset tables.
+  [#889](https://github.com/gimli-rs/gimli/pull/889)
+
+* Checked for arithmetic overflow when parsing `DW_OP_piece`.
+  [#891](https://github.com/gimli-rs/gimli/pull/891)
+
+### Added
 
 * Added Wasm location support to `read::Evaluation`.
   [#871](https://github.com/gimli-rs/gimli/pull/871)
 
-### Changed
+* Added `read::ListsHeader` for `.debug_loclists` and `.debug_rnglists`.
+  [#878](https://github.com/gimli-rs/gimli/pull/878)
+
+* Added `read::DebugPubNames::sets` and `read::DebugPubTypes::sets`.
+  [#882](https://github.com/gimli-rs/gimli/pull/882)
+
+* Added `read::DebugGnuPubNames` and `read::DebugGnuPubTypes`.
+  [#883](https://github.com/gimli-rs/gimli/pull/883)
+
+* Added parsing for bare S CFI augmentations.
+  [#887](https://github.com/gimli-rs/gimli/pull/887)
+
+* Added `read::PubNamesEntry::flags` and `read::PubTypesEntry::flags`.
+  [#888](https://github.com/gimli-rs/gimli/pull/888)
+
+--------------------------------------------------------------------------------
+
+## 0.33.1
+
+~Released 2026/03/29.~ Yanked due to breaking change.
+
+### Breaking changes
+
+* Added Wasm location support to `read::Evaluation`.
+  [#871](https://github.com/gimli-rs/gimli/pull/871)
 
 * Changed `write` module to validate use of base addresses in range and location lists.
   [#870](https://github.com/gimli-rs/gimli/pull/870)
