@@ -168,6 +168,7 @@ pub use self::unit::*;
 
 /// An error that occurred when writing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Error {
     /// The given offset is out of bounds.
     OffsetOutOfBounds,
