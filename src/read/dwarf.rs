@@ -626,7 +626,10 @@ impl<R: Reader> Dwarf<R> {
             }
         }
         let range = low_pc.and_then(|begin| {
-            let end = size.map(|size| begin + size).or(high_pc);
+            let end = match size {
+                Some(size) => begin.checked_add(size),
+                None => high_pc,
+            };
             // TODO: perhaps return an error if `end` is `None`
             end.map(|end| Range { begin, end })
         });
@@ -1739,5 +1742,59 @@ mod tests {
             }
         }
         assert_eq!(dwarf.format_error(Error::Io), format!("{}", Error::Io));
+    }
+
+    #[test]
+    #[cfg(feature = "write")]
+    fn test_die_ranges_high_pc() {
+        use crate::write::{self, Address, EndianVec};
+        use crate::{Format, Range};
+
+        // Build a unit whose root DIE has `DW_AT_low_pc` and a `DW_AT_high_pc`
+        // offset (`DW_FORM_udata`), then return the range computed for it.
+        fn die_range(low_pc: u64, high_pc: u64) -> Option<Range> {
+            let mut write_dwarf = write::Dwarf::new();
+            let unit_id = write_dwarf.units.add(write::Unit::new(
+                Encoding {
+                    format: Format::Dwarf32,
+                    version: 5,
+                    address_size: 8,
+                },
+                write::LineProgram::none(),
+            ));
+            let write_unit = write_dwarf.units.get_mut(unit_id);
+            let root = write_unit.root();
+            let root = write_unit.get_mut(root);
+            root.set(
+                constants::DW_AT_low_pc,
+                write::AttributeValue::Address(Address::Constant(low_pc)),
+            );
+            root.set(
+                constants::DW_AT_high_pc,
+                write::AttributeValue::Udata(high_pc),
+            );
+
+            let mut sections = write::Sections::new(EndianVec::new(LittleEndian));
+            write_dwarf.write(&mut sections).unwrap();
+            let dwarf = sections.read(LittleEndian);
+
+            let header = dwarf.units().next().unwrap().unwrap();
+            let unit = dwarf.unit(header).unwrap();
+            let mut entries = unit.entries();
+            let root = entries.next_dfs().unwrap().unwrap();
+            dwarf.die_ranges(&unit, root).unwrap().next().unwrap()
+        }
+
+        // A normal offset gives `begin..begin + offset`.
+        assert_eq!(
+            die_range(0x1000, 0x200),
+            Some(Range {
+                begin: 0x1000,
+                end: 0x1200,
+            })
+        );
+        // An offset whose end would overflow the address space is dropped
+        // instead of wrapping to an end below the begin.
+        assert_eq!(die_range(0xffff_ffff_ffff_ff00, 0x200), None);
     }
 }
