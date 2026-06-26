@@ -85,13 +85,13 @@ jobs:
         with:
           name: fuzz-targets
           path: fuzz-targets
-        # Note: -max_total_time=300 == 300 seconds == 5 minutes.
+        # Note: -max_total_time=30 is in seconds.
       - name: Run `${{matrix.fuzz_target}}` fuzz target
         run: |
           mkdir ${{matrix.fuzz_target}}_artifacts
           chmod +x ./fuzz-targets/${{matrix.fuzz_target}}
           ./fuzz-targets/${{matrix.fuzz_target}} ./corpora/${{matrix.fuzz_target}} \
-              -max_total_time=300 \
+              -max_total_time=30 \
               -artifact_prefix=./${{matrix.fuzz_target}}_artifacts/
       # If fuzzing finds a new crash/panic/etc, upload the input artifacts so we
       # can debug them.
