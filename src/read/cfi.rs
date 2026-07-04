@@ -395,7 +395,10 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
         let eh_frame_ptr = self.hdr.eh_frame_ptr().direct()?;
 
         // Calculate the offset in the EhFrame section
-        R::Offset::from_u64(ptr - eh_frame_ptr).map(EhFrameOffset)
+        let offset = ptr
+            .checked_sub(eh_frame_ptr)
+            .ok_or(Error::UnsupportedOffset)?;
+        R::Offset::from_u64(offset).map(EhFrameOffset)
     }
 
     /// Returns a parsed FDE for the given address, or `NoUnwindInfoForAddress`
@@ -6610,6 +6613,33 @@ mod tests {
         assert_eq!(table.lookup(20, &bases), Ok(Pointer::Direct(2)));
         assert_eq!(table.lookup(21, &bases), Ok(Pointer::Direct(2)));
         assert_eq!(table.lookup(100_000, &bases), Ok(Pointer::Direct(2)));
+    }
+
+    #[test]
+    fn test_eh_frame_hdr_pointer_to_offset_underflow() {
+        // `eh_frame_ptr` (0x12345) is above the FDE pointers stored in the
+        // table (1 and 2), so `pointer_to_offset` subtracts a larger base from
+        // a smaller pointer.
+        let section = Section::with_endian(Endian::Little)
+            .L8(1)
+            .L8(0x0b)
+            .L8(0x03)
+            .L8(0x0b)
+            .L32(0x12345)
+            .L32(2)
+            .L32(10)
+            .L32(1)
+            .L32(20)
+            .L32(2);
+        let section = section.get_contents().unwrap();
+        let bases = BaseAddresses::default();
+        let table = EhFrameHdr::new(&section, LittleEndian)
+            .parse(&bases, 8)
+            .unwrap();
+        let table = table.table().unwrap();
+        let ptr = table.lookup(0, &bases).unwrap();
+        assert_eq!(ptr, Pointer::Direct(1));
+        assert_eq!(table.pointer_to_offset(ptr), Err(Error::UnsupportedOffset));
     }
 
     #[test]
