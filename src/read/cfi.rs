@@ -166,6 +166,25 @@ impl<R: Reader> EhFrameHdr<R> {
             fde_count = parse_encoded_value(fde_count_enc, &parameters, &mut reader)?;
         }
 
+        // Validate that the table contains exactly `fde_count` entries so that
+        // later offset computations in `EhHdrTable` can't overflow. Trailing
+        // data after the table is permitted.
+        let mut table = reader;
+        if fde_count != 0 {
+            let row_size = match table_enc.format() {
+                constants::DW_EH_PE_sdata2 | constants::DW_EH_PE_udata2 => Some(4),
+                constants::DW_EH_PE_sdata4 | constants::DW_EH_PE_udata4 => Some(8),
+                constants::DW_EH_PE_sdata8 | constants::DW_EH_PE_udata8 => Some(16),
+                _ => None,
+            };
+            if let Some(row_size) = row_size {
+                let len = fde_count
+                    .checked_mul(row_size)
+                    .ok_or(Error::UnsupportedOffset)?;
+                table.truncate(R::Offset::from_u64(len)?)?;
+            }
+        }
+
         Ok(ParsedEhFrameHdr {
             address_size,
             section: self.0.clone(),
@@ -173,7 +192,7 @@ impl<R: Reader> EhFrameHdr<R> {
             eh_frame_ptr,
             fde_count,
             table_enc,
-            table: reader,
+            table,
         })
     }
 }
@@ -264,7 +283,11 @@ impl<'a, 'bases, R: Reader> EhHdrTableIter<'a, 'bases, R> {
 
         let row_size = size * 2;
         let n = u64::try_from(n).map_err(|_| Error::UnsupportedOffset)?;
-        self.remain = self.remain.saturating_sub(n);
+        if n >= self.remain {
+            self.remain = 0;
+            return Ok(None);
+        }
+        self.remain -= n;
         self.table.skip(R::Offset::from_u64(n * row_size)?)?;
         self.next()
     }
@@ -6532,6 +6555,68 @@ mod tests {
                 constants::DW_EH_PE_uleb128
             ))
         );
+    }
+
+    #[test]
+    fn test_eh_frame_hdr_fde_count_overflow() {
+        // `fde_count` is large enough that `fde_count * row_size` overflows a
+        // `u64`, so parsing must reject it rather than overflow when the table
+        // is later searched.
+        let section = Section::with_endian(Endian::Little)
+            .L8(1)
+            .L8(0x03)
+            .L8(0x04)
+            .L8(0x04)
+            .L32(0x12345)
+            .L64(u64::MAX)
+            .L64(0)
+            .L64(0);
+        let section = section.get_contents().unwrap();
+        let bases = BaseAddresses::default();
+        let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
+        assert_eq!(result.err(), Some(Error::UnsupportedOffset));
+    }
+
+    #[test]
+    fn test_eh_frame_hdr_fde_count_too_large() {
+        // `fde_count` claims more entries than the table actually contains, so
+        // parsing must reject it.
+        let section = Section::with_endian(Endian::Little)
+            .L8(1)
+            .L8(0x0b)
+            .L8(0x03)
+            .L8(0x0b)
+            .L32(0x12345)
+            .L32(4)
+            .L32(10)
+            .L32(1);
+        let section = section.get_contents().unwrap();
+        let bases = BaseAddresses::default();
+        let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_eh_frame_hdr_iter_nth_out_of_range() {
+        let section = Section::with_endian(Endian::Little)
+            .L8(1)
+            .L8(0x0b)
+            .L8(0x03)
+            .L8(0x0b)
+            .L32(0x12345)
+            .L32(2)
+            .L32(10)
+            .L32(1)
+            .L32(20)
+            .L32(2);
+        let section = section.get_contents().unwrap();
+        let bases = BaseAddresses::default();
+        let result = EhFrameHdr::new(&section, LittleEndian)
+            .parse(&bases, 8)
+            .unwrap();
+        let table = result.table().unwrap();
+        let mut iter = table.iter(&bases);
+        assert_eq!(iter.nth(5), Ok(None));
     }
 
     #[test]
