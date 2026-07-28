@@ -106,11 +106,9 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         let write_section = write_elf.sections.add();
         write_section.name = id.name().into();
         write_section.sh_type = object::elf::SHT_PROGBITS;
-        write_section.sh_flags = if id.is_string() {
-            (object::elf::SHF_STRINGS | object::elf::SHF_MERGE).into()
-        } else {
-            0
-        };
+        if id.is_string() {
+            write_section.sh_flags = object::elf::SHF_STRINGS | object::elf::SHF_MERGE;
+        }
         write_section.sh_addralign = 1;
         write_section.data = object::build::elf::SectionData::Data(section.take().into());
         Ok(())
