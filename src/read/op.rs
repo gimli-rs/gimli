@@ -279,24 +279,27 @@ where
     Uninitialized,
     /// The index of a local in the currently executing function.
     ///
+    /// Pushes the value of the local onto the stack.
+    ///
     /// Represents `DW_OP_WASM_location 0x00`.
-    /// Completes the piece or expression.
     WasmLocal {
         /// The index of the local.
         index: u32,
     },
     /// The index of a global.
     ///
+    /// Pushes the value of the global onto the stack.
+    ///
     /// Represents `DW_OP_WASM_location 0x01` or `DW_OP_WASM_location 0x03`.
-    /// Completes the piece or expression.
     WasmGlobal {
         /// The index of the global.
         index: u32,
     },
-    /// The index of an item on the operand stack.
+    /// The index of an item on the Wasm operand stack.
+    ///
+    /// Reads the item from the Wasm operand stack and pushes it onto the DWARF stack.
     ///
     /// Represents `DW_OP_WASM_location 0x02`.
-    /// Completes the piece or expression.
     WasmStack {
         /// The index of the stack item. 0 is the bottom of the operand stack.
         index: u32,
