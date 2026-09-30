@@ -1033,11 +1033,9 @@ impl<R: Reader> DwarfPackage<R> {
     /// # unreachable!()
     /// # }
     pub fn find_cu(&self, id: DwoId, parent: &Dwarf<R>) -> Result<Option<Dwarf<R>>> {
-        let row = match self.cu_index.find(id.0) {
-            Some(row) => row,
-            None => return Ok(None),
-        };
-        self.cu_sections(row, parent).map(Some)
+        self.find_unit(&self.cu_index, id.0, parent, |unit| {
+            unit == UnitType::SplitCompilation(id)
+        })
     }
 
     /// Find the type unit with the given type signature and return its section
@@ -1047,11 +1045,9 @@ impl<R: Reader> DwarfPackage<R> {
         signature: DebugTypeSignature,
         parent: &Dwarf<R>,
     ) -> Result<Option<Dwarf<R>>> {
-        let row = match self.tu_index.find(signature.0) {
-            Some(row) => row,
-            None => return Ok(None),
-        };
-        self.tu_sections(row, parent).map(Some)
+        self.find_unit(&self.tu_index, signature.0, parent, |unit| {
+            matches!(unit, UnitType::SplitType { type_signature, .. } if type_signature == signature)
+        })
     }
 
     /// Return the section contributions of the compilation unit at the given index.
@@ -1190,6 +1186,43 @@ impl<R: Reader> DwarfPackage<R> {
             sup: parent.sup.clone(),
             abbreviations_cache: AbbreviationsCache::new(),
         })
+    }
+
+    fn find_unit(
+        &self,
+        index: &UnitIndex<R>,
+        id: u64,
+        parent: &Dwarf<R>,
+        matches: impl Fn(UnitType<R::Offset>) -> bool,
+    ) -> Result<Option<Dwarf<R>>> {
+        let row = match index.find(id) {
+            Some(row) => row,
+            None => return Ok(None),
+        };
+        let mut dwarf = self.sections(index.sections(row)?, parent)?;
+        if index.version() != 5 || self.debug_info.reader().len().into_u64() <= u64::from(u32::MAX)
+        {
+            return Ok(Some(dwarf));
+        }
+        let mut input = self.debug_info.reader().clone();
+        let offset = dwarf.debug_info.reader().offset_from(&input);
+        input.skip(offset)?;
+        // llvm-dwp --continue-on-cu-index-overflow allows 32-bit section offsets to wrap.
+        // Recover the full offset by matching the unit ID at 4 GiB intervals.
+        loop {
+            if let Ok(candidate) = input.clone().split(dwarf.debug_info.reader().len()) {
+                let candidate = DebugInfo::from(candidate);
+                if let Ok(Some(unit)) = candidate.units().next()
+                    && matches(unit.type_())
+                {
+                    dwarf.debug_info = candidate;
+                    return Ok(Some(dwarf));
+                }
+            }
+            if input.skip(R::Offset::from_u64(1_u64 << 32)?).is_err() {
+                return Err(Error::NoEntryAtGivenOffset(offset.into_u64()));
+            }
+        }
     }
 }
 
@@ -1796,5 +1829,88 @@ mod tests {
         // An offset whose end would overflow the address space is dropped
         // instead of wrapping to an end below the begin.
         assert_eq!(die_range(0xffff_ffff_ffff_ff00, 0x200), None);
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_dwp_info_offset_overflow() {
+        use test_assembler::{Endian, Section as TestSection};
+
+        const WRAP: usize = 1 << 32;
+        for kind in [constants::DW_UT_split_compile, constants::DW_UT_split_type] {
+            let is_type = kind == constants::DW_UT_split_type;
+            let size = if is_type { 24u32 } else { 20u32 };
+            #[rustfmt::skip]
+            let mut header = TestSection::with_endian(Endian::Little)
+                .D32(size - 4).D16(5).D8(kind.0).D8(8).D32(0).D64(1);
+            if is_type {
+                header = header.D32(0);
+            }
+            let header = header.get_contents().unwrap();
+            let expected = if is_type {
+                UnitType::SplitType {
+                    type_signature: DebugTypeSignature(1),
+                    type_offset: UnitOffset(0),
+                }
+            } else {
+                UnitType::SplitCompilation(DwoId(1))
+            };
+            #[rustfmt::skip]
+            let index = TestSection::with_endian(Endian::Little)
+                // Header.
+                .D16(5).D16(0).D32(1).D32(1).D32(2)
+                // Slots.
+                .D64(0).D64(1).D32(0).D32(1)
+                // Section, offset, size.
+                .D32(constants::DW_SECT_INFO.0).D32(0).D32(size)
+                .get_contents().unwrap();
+            let mut data = vec![0u8; WRAP + header.len()];
+            data[..header.len()].copy_from_slice(&header);
+            data[WRAP..].copy_from_slice(&header);
+
+            let find = |data: &[u8]| {
+                let empty = EndianSlice::new(&[], LittleEndian);
+                let index_section = if is_type {
+                    SectionId::DebugTuIndex
+                } else {
+                    SectionId::DebugCuIndex
+                };
+                let package = DwarfPackage::load(
+                    |section| {
+                        Ok::<_, Error>(EndianSlice::new(
+                            if section == SectionId::DebugInfo {
+                                data
+                            } else if section == index_section {
+                                &index
+                            } else {
+                                &[]
+                            },
+                            LittleEndian,
+                        ))
+                    },
+                    empty,
+                )?;
+                let parent = Dwarf::default();
+                let dwarf = if is_type {
+                    package.find_tu(DebugTypeSignature(1), &parent)?
+                } else {
+                    package.find_cu(DwoId(1), &parent)?
+                }
+                .unwrap();
+                let unit = dwarf.units().next()?.unwrap();
+                let offset =
+                    Reader::offset_from(dwarf.debug_info.reader(), package.debug_info.reader());
+                Ok::<_, Error>((unit.type_(), offset))
+            };
+
+            assert_eq!(find(&data[..header.len()]).unwrap(), (expected, 0));
+            assert_eq!(find(&data).unwrap(), (expected, 0));
+            data[12..20].copy_from_slice(&2u64.to_le_bytes());
+            assert_eq!(find(&data).unwrap(), (expected, WRAP));
+            data[4..6].copy_from_slice(&u16::MAX.to_le_bytes());
+            assert_eq!(find(&data).unwrap(), (expected, WRAP));
+            data[WRAP + 12..WRAP + 20].copy_from_slice(&2u64.to_le_bytes());
+            assert!(find(&data).is_err());
+        }
     }
 }
