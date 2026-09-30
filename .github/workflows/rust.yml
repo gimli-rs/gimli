@@ -58,7 +58,7 @@ jobs:
       - name: Install rust nightly
         uses: dtolnay/rust-toolchain@nightly
       - name: Install `cargo fuzz`
-        run: cargo install cargo-fuzz --vers '^0.11.0'
+        run: cargo install cargo-fuzz --vers '^0.13.0'
       - run: cargo fuzz build -Oa
       - uses: actions/upload-artifact@v4
         with:
