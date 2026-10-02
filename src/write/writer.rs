@@ -60,7 +60,15 @@ pub trait Writer {
                     constants::DW_EH_PE_pcrel => {
                         // TODO: better handling of sign
                         let offset = self.len() as u64;
-                        val.wrapping_sub(offset)
+                        let val = val.wrapping_sub(offset);
+                        // Addresses wrap at the address size, so for a 4-byte address
+                        // the difference is a 32-bit value: sign extend it so that a
+                        // target below the pointer fits the signed formats.
+                        if size == 4 {
+                            val as u32 as i32 as u64
+                        } else {
+                            val
+                        }
                     }
                     _ => {
                         return Err(Error::UnsupportedPointerEncoding(eh_pe));
