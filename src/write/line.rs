@@ -109,7 +109,7 @@ impl LineProgram {
         // We require a special opcode for a line advance of 0.
         // See the debug_asserts in generate_row().
         assert!(line_encoding.line_base <= 0);
-        assert!(line_encoding.line_base + line_encoding.line_range as i8 > 0);
+        assert!(i16::from(line_encoding.line_base) + i16::from(line_encoding.line_range) > 0);
         let mut program = LineProgram {
             none: false,
             encoding,
@@ -442,7 +442,9 @@ impl LineProgram {
         let special_base = u64::from(OPCODE_BASE);
         // TODO: handle lack of special opcodes for 0 line advance
         debug_assert!(self.line_encoding.line_base <= 0);
-        debug_assert!(self.line_encoding.line_base + self.line_encoding.line_range as i8 >= 0);
+        debug_assert!(
+            i16::from(self.line_encoding.line_base) + i16::from(self.line_encoding.line_range) > 0
+        );
         let special_default = special_base.wrapping_sub(line_base);
         let mut special = special_default;
         let mut use_special = false;
@@ -460,15 +462,22 @@ impl LineProgram {
 
         if op_advance != 0 {
             // Using ConstAddPc can save a byte.
-            let (special_op_advance, const_add_pc) = if special + op_advance * line_range <= 255 {
+            // Use checked arithmetic: large address advances can't use a special opcode.
+            let fits = |op_advance: u64| {
+                op_advance
+                    .checked_mul(line_range)
+                    .and_then(|special_op| special_op.checked_add(special))
+                    .is_some_and(|special| special <= 255)
+            };
+            let (special_op_advance, const_add_pc) = if fits(op_advance) {
                 (op_advance, false)
             } else {
                 let op_range = (255 - special_base) / line_range;
-                (op_advance - op_range, true)
+                (op_advance.saturating_sub(op_range), true)
             };
 
-            let special_op = special_op_advance * line_range;
-            if special + special_op <= 255 {
+            if fits(special_op_advance) {
+                let special_op = special_op_advance * line_range;
                 special += special_op;
                 use_special = true;
                 if const_add_pc {
@@ -490,6 +499,29 @@ impl LineProgram {
         }
 
         self.prev_row = self.row;
+    }
+
+    /// The operation advance from the previous row to `row`, or `None` if it can't be
+    /// encoded: the address decreases, is not a multiple of `minimum_instruction_length`,
+    /// or the operation index decreases or overflows.
+    #[cfg(feature = "read")]
+    fn checked_op_advance(&self, row: &LineRow) -> Option<u64> {
+        let mut address_advance = row
+            .address_offset
+            .checked_sub(self.prev_row.address_offset)?;
+        let min_inst_len = u64::from(self.line_encoding.minimum_instruction_length);
+        if min_inst_len != 1 {
+            if !row.address_offset.is_multiple_of(min_inst_len) {
+                return None;
+            }
+            address_advance /= min_inst_len;
+        }
+        address_advance
+            .checked_mul(u64::from(
+                self.line_encoding.maximum_operations_per_instruction,
+            ))?
+            .checked_add(row.op_index)?
+            .checked_sub(self.prev_row.op_index)
     }
 
     fn op_advance(&self) -> u64 {
@@ -884,6 +916,11 @@ impl LineString {
         }
     }
 
+    #[cfg(feature = "read")]
+    fn is_empty_string(&self) -> bool {
+        matches!(self, LineString::String(val) if val.is_empty())
+    }
+
     /// Get a reference to the string data.
     pub fn get<'a>(
         &'a self,
@@ -1233,7 +1270,10 @@ mod convert {
                 return Err(ConvertError::MissingCompilationName);
             };
 
-            if from_header.line_base() > 0 {
+            // `LineProgram::new` requires a special opcode for a line advance of 0.
+            if from_header.line_base() > 0
+                || i16::from(from_header.line_base()) + i16::from(from_header.line_range()) <= 0
+            {
                 return Err(ConvertError::InvalidLineBase);
             }
             let mut program = LineProgram::new(
@@ -1256,6 +1296,10 @@ mod convert {
             for from_attr in from_header.include_directories() {
                 let from_dir =
                     Self::convert_string(from_attr.clone(), from_dwarf, encoding, line_strings)?;
+                // `LineProgram::add_directory` requires a non-empty name for version <= 4.
+                if encoding.version <= 4 && from_dir.is_empty_string() {
+                    return Err(ConvertError::InvalidDirectoryIndex);
+                }
                 dirs.push(program.add_directory(from_dir));
             }
 
@@ -1307,6 +1351,10 @@ mod convert {
         ) -> ConvertResult<(LineString, DirectoryId, Option<FileInfo>)> {
             let from_name =
                 Self::convert_string(from_file.path_name(), from_dwarf, encoding, line_strings)?;
+            // `LineProgram::add_file` requires a non-empty name for version <= 4.
+            if encoding.version <= 4 && from_name.is_empty_string() {
+                return Err(ConvertError::InvalidFileIndex);
+            }
             let from_dir = from_file.directory_index();
             if from_dir >= dirs.len() as u64 {
                 return Err(ConvertError::InvalidDirectoryIndex);
@@ -1565,9 +1613,19 @@ mod convert {
                         self.set_address(address);
                     }
                     ConvertLineRow::Row(row) => {
+                        // The read program can move the address backwards or to an
+                        // unaligned address, which the writer can't encode.
+                        if self.program.checked_op_advance(&row).is_none() {
+                            return Err(ConvertError::InvalidAddress);
+                        }
                         self.generate_row(row);
                     }
                     ConvertLineRow::EndSequence(length) => {
+                        let mut row = self.program.prev_row;
+                        row.address_offset = length;
+                        if self.program.checked_op_advance(&row).is_none() {
+                            return Err(ConvertError::InvalidAddress);
+                        }
                         self.end_sequence(length);
                     }
                 }
@@ -2756,5 +2814,150 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_convert_invalid_line_program() {
+        use crate::test_util::GimliSectionMethods;
+        use crate::write::ConvertError;
+        use test_assembler::{Endian, Label, LabelMaker, Section};
+
+        // A version 4 line program with one file and the given encoding and opcodes.
+        fn debug_line(
+            minimum_instruction_length: u8,
+            line_base: i8,
+            line_range: u8,
+            program: &[u8],
+        ) -> Vec<u8> {
+            debug_line_with(
+                minimum_instruction_length,
+                line_base,
+                line_range,
+                b"",
+                b"file",
+                program,
+            )
+        }
+
+        fn debug_line_with(
+            minimum_instruction_length: u8,
+            line_base: i8,
+            line_range: u8,
+            dir: &[u8],
+            file: &[u8],
+            program: &[u8],
+        ) -> Vec<u8> {
+            let length = Label::new();
+            let header_length = Label::new();
+            let start = Label::new();
+            let header_start = Label::new();
+            let header_end = Label::new();
+            let end = Label::new();
+            let section = Section::with_endian(Endian::Little)
+                .L32(&length)
+                .mark(&start)
+                .L16(4)
+                .L32(&header_length)
+                .mark(&header_start)
+                .D8(minimum_instruction_length)
+                .D8(1) // maximum_operations_per_instruction
+                .D8(1) // default_is_stmt
+                .D8(line_base as u8)
+                .D8(line_range)
+                .D8(13) // opcode_base
+                .append_bytes(&[0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1]);
+            let section = if dir.is_empty() {
+                section
+            } else {
+                section.append_bytes(dir).D8(0)
+            };
+            let section = section
+                .D8(0) // include_directories
+                .append_bytes(file)
+                .D8(0)
+                .uleb(0)
+                .uleb(0)
+                .uleb(0)
+                .D8(0) // file_names
+                .mark(&header_end)
+                .append_bytes(program)
+                .mark(&end);
+            length.set_const((&end - &start) as u64);
+            header_length.set_const((&header_end - &header_start) as u64);
+            section.get_contents().unwrap()
+        }
+
+        fn convert(section: &[u8]) -> Option<ConvertError> {
+            let read_debug_line = read::DebugLine::new(section, LittleEndian);
+            let read_program = read_debug_line
+                .program(DebugLineOffset(0), 8, None, None)
+                .unwrap();
+            let read_dwarf = read::Dwarf::default();
+            let mut dwarf = Dwarf::new();
+            dwarf
+                .read_line_program(&read_dwarf, read_program, None, None)
+                .and_then(|convert| convert.convert(&|address| Some(Address::Constant(address))))
+                .err()
+        }
+
+        let set_address = |address: u64| {
+            let mut v = vec![0, 9, constants::DW_LNE_set_address.0];
+            v.extend_from_slice(&address.to_le_bytes());
+            v
+        };
+        let advance_pc = |advance: u8| [constants::DW_LNS_advance_pc.0, advance];
+        let copy = [constants::DW_LNS_copy.0];
+        let end_sequence = [0, 1, constants::DW_LNE_end_sequence.0];
+
+        let valid = [
+            &set_address(0x1000)[..],
+            &copy,
+            &advance_pc(4),
+            &end_sequence,
+        ]
+        .concat();
+        assert_eq!(convert(&debug_line(1, -5, 14, &valid)), None);
+
+        // `line_base + line_range` must be positive, so that a line advance of 0 can be
+        // encoded with a special opcode. The read header only rejects `line_range == 0`.
+        for (line_base, line_range) in [(-5, 5), (-128, 1), (-128, 128)] {
+            assert_eq!(
+                convert(&debug_line(1, line_base, line_range, &valid)),
+                Some(ConvertError::InvalidLineBase),
+            );
+        }
+
+        // The address offset is not a multiple of `minimum_instruction_length`.
+        // `DW_LNS_fixed_advance_pc` advances by an unscaled number of bytes.
+        let unaligned = [
+            &set_address(0x1000)[..],
+            &copy,
+            &[constants::DW_LNS_fixed_advance_pc.0, 3, 0],
+            &copy,
+            &end_sequence,
+        ]
+        .concat();
+        assert_eq!(
+            convert(&debug_line(4, -5, 14, &unaligned)),
+            Some(ConvertError::InvalidAddress),
+        );
+
+        // An address advance so large that the special opcode calculation overflows.
+        let mut large = [&set_address(0)[..], &copy].concat();
+        large.push(constants::DW_LNS_advance_pc.0);
+        large.extend_from_slice(&[0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x10]);
+        large.extend_from_slice(&copy);
+        large.extend_from_slice(&end_sequence);
+        assert_eq!(convert(&debug_line(1, -5, 14, &large)), None);
+
+        // Empty file and directory names can't be written for version <= 4.
+        assert_eq!(
+            convert(&debug_line_with(1, -5, 14, b"", b"", &valid)),
+            Some(ConvertError::InvalidFileIndex),
+        );
+        assert_eq!(
+            convert(&debug_line_with(1, -5, 14, b"dir", b"file", &valid)),
+            None,
+        );
     }
 }
