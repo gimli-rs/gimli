@@ -217,7 +217,9 @@ impl CommonInformationEntry {
         w.write_uleb128(self.code_alignment_factor.into())?;
         w.write_sleb128(self.data_alignment_factor.into())?;
 
-        if !eh_frame && encoding.version == 1 {
+        // Version 1 encodes the return address register as a ubyte, in both `.debug_frame`
+        // and `.eh_frame`.
+        if encoding.version == 1 {
             let register = self.return_address_register.0 as u8;
             if u16::from(register) != self.return_address_register.0 {
                 return Err(Error::ValueTooLarge);
@@ -1074,5 +1076,54 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_eh_frame_return_address_register() {
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 1,
+            address_size: 8,
+        };
+        let cie_instructions = [
+            CallFrameInstruction::Cfa(X86_64::RSP, 8),
+            CallFrameInstruction::Offset(Register(200), -8),
+        ];
+
+        // A register that fits in the ubyte used by version 1.
+        let mut frames = FrameTable::default();
+        let mut cie = CommonInformationEntry::new(encoding, 1, -8, Register(200));
+        for i in &cie_instructions {
+            cie.add_instruction(i.clone());
+        }
+        let cie_id = frames.add_cie(cie);
+        frames.add_fde(
+            cie_id,
+            FrameDescriptionEntry::new(Address::Constant(0x1000), 0x10),
+        );
+
+        let mut eh_frame = EhFrame::from(EndianVec::new(LittleEndian));
+        frames.write_eh_frame(&mut eh_frame).unwrap();
+        let mut read_eh_frame = read::EhFrame::new(eh_frame.slice(), LittleEndian);
+        read_eh_frame.set_address_size(8);
+        let convert_frames =
+            FrameTable::from(&read_eh_frame, &|address| Some(Address::Constant(address))).unwrap();
+        let convert_cie = convert_frames.cies.get_index(0).unwrap();
+        assert_eq!(convert_cie.return_address_register, Register(200));
+        assert_eq!(convert_cie.instructions, cie_instructions);
+
+        // A register that doesn't fit.
+        let mut frames = FrameTable::default();
+        let cie = CommonInformationEntry::new(encoding, 1, -8, Register(256));
+        let cie_id = frames.add_cie(cie);
+        frames.add_fde(
+            cie_id,
+            FrameDescriptionEntry::new(Address::Constant(0x1000), 0x10),
+        );
+        let mut eh_frame = EhFrame::from(EndianVec::new(LittleEndian));
+        assert_eq!(
+            frames.write_eh_frame(&mut eh_frame),
+            Err(Error::ValueTooLarge)
+        );
     }
 }
