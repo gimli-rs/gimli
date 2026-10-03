@@ -1264,7 +1264,12 @@ impl AttributeValue {
             }
             AttributeValue::FileIndex(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
-                uleb128_size(val.map(|id| id.raw(unit.version())).unwrap_or(0))
+                // The file index is an index into the line program's file table, which
+                // may use a different version than the unit.
+                uleb128_size(
+                    val.map(|id| id.raw(unit.line_program.version()))
+                        .unwrap_or(0),
+                )
             }
         })
     }
@@ -1523,7 +1528,10 @@ impl AttributeValue {
             }
             AttributeValue::FileIndex(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
-                w.write_uleb128(val.map(|id| id.raw(unit.version())).unwrap_or(0))?;
+                w.write_uleb128(
+                    val.map(|id| id.raw(unit.line_program.version()))
+                        .unwrap_or(0),
+                )?;
             }
         }
         Ok(())
@@ -2945,7 +2953,14 @@ pub(crate) mod convert {
             read_unit: read::UnitRef<'_, R>,
             index: u64,
         ) -> ConvertResult<Option<FileId>> {
-            if index == 0 && read_unit.encoding().version <= 4 {
+            // The file index is an index into the line program's file table, which
+            // may use a different version than the unit.
+            let version = read_unit
+                .line_program
+                .as_ref()
+                .map(|program| program.header().version())
+                .unwrap_or(read_unit.encoding().version);
+            if index == 0 && version <= 4 {
                 return Ok(None);
             }
             match self.line_program_files.get(index as usize) {
@@ -4092,13 +4107,24 @@ mod tests {
         let file_string1 = LineString::String(file_bytes1.to_vec());
         let file_string2 = LineString::String(file_bytes2.to_vec());
 
-        for &version in &[2, 3, 4, 5] {
+        // `.debug_info` and `.debug_line` may use different versions, except that a version 5
+        // line program can't be used by an earlier unit. The file index uses the line
+        // program's version.
+        let versions = [2, 3, 4, 5]
+            .into_iter()
+            .flat_map(|unit| [2, 3, 4, 5].into_iter().map(move |line| (unit, line)))
+            .filter(|&(unit, line)| unit >= 5 || line < 5);
+        for (unit_version, version) in versions {
             for &address_size in &[4, 8] {
                 for &format in &[Format::Dwarf32, Format::Dwarf64] {
                     let encoding = Encoding {
                         format,
                         version,
                         address_size,
+                    };
+                    let unit_encoding = Encoding {
+                        version: unit_version,
+                        ..encoding
                     };
 
                     // The line program we'll be referencing.
@@ -4115,7 +4141,7 @@ mod tests {
                     let file1 = line_program.add_file(file_string1.clone(), dir, None);
                     let file2 = line_program.add_file(file_string2.clone(), dir, None);
 
-                    let mut unit = Unit::new(encoding, line_program);
+                    let mut unit = Unit::new(unit_encoding, line_program);
                     let root = unit.get_mut(unit.root());
                     root.set(
                         constants::DW_AT_name,
@@ -4199,6 +4225,15 @@ mod tests {
 
                     let convert_path = get_convert_path(constants::DW_AT_call_file);
                     assert_eq!(convert_dwarf.get_line_string(convert_path), file_bytes2);
+
+                    // Writing the converted DWARF again gives the same file indices.
+                    let mut convert_dwarf = convert_dwarf;
+                    let mut convert_sections = Sections::new(EndianVec::new(LittleEndian));
+                    convert_dwarf.write(&mut convert_sections).unwrap();
+                    assert_eq!(
+                        convert_sections.debug_info.slice(),
+                        sections.debug_info.slice()
+                    );
                 }
             }
         }
