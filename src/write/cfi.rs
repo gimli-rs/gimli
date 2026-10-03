@@ -1075,4 +1075,50 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_eh_frame_pcrel_address_size_4() {
+        // A 32-bit `.eh_frame` (like i386 executables) whose FDE addresses are pc-relative
+        // and below the section, so the pc-relative values are negative.
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 1,
+            address_size: 4,
+        };
+        let mut cie = CommonInformationEntry::new(encoding, 1, -4, Register(8));
+        cie.fde_address_encoding = constants::DW_EH_PE_pcrel | constants::DW_EH_PE_sdata4;
+        cie.lsda_encoding = Some(constants::DW_EH_PE_pcrel | constants::DW_EH_PE_sdata4);
+
+        // The reader gives addresses relative to the `.eh_frame` base it is told about
+        // (0 here), as 32-bit values: with `.eh_frame` at 0x2000, address 0x1000 reads as
+        // 0x1000 - 0x2000 = 0xffff_f000.
+        let read_address = |address: u32| -> u64 { u64::from(address.wrapping_sub(0x2000)) };
+        let mut frames = FrameTable::default();
+        let cie_id = frames.add_cie(cie);
+        let mut fde = FrameDescriptionEntry::new(Address::Constant(read_address(0x1000)), 0x10);
+        fde.lsda = Some(Address::Constant(read_address(0x10)));
+        frames.add_fde(cie_id, fde);
+
+        let mut eh_frame = EhFrame::from(EndianVec::new(LittleEndian));
+        frames.write_eh_frame(&mut eh_frame).unwrap();
+
+        let mut read_eh_frame = read::EhFrame::new(eh_frame.slice(), LittleEndian);
+        read_eh_frame.set_address_size(4);
+        let convert_frames =
+            FrameTable::from(&read_eh_frame, &|address| Some(Address::Constant(address))).unwrap();
+        assert_eq!(convert_frames.fdes.len(), 1);
+        assert_eq!(
+            convert_frames.fdes[0].1.address,
+            Address::Constant(read_address(0x1000))
+        );
+        assert_eq!(
+            convert_frames.fdes[0].1.lsda,
+            Some(Address::Constant(read_address(0x10)))
+        );
+
+        // Writing the converted table again gives the same bytes.
+        let mut eh_frame2 = EhFrame::from(EndianVec::new(LittleEndian));
+        convert_frames.write_eh_frame(&mut eh_frame2).unwrap();
+        assert_eq!(eh_frame.slice(), eh_frame2.slice());
+    }
 }
