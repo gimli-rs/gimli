@@ -121,7 +121,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install rust stable
         uses: dtolnay/rust-toolchain@stable
-      - run: cargo bench
+      - run: cargo bench -- --test
 
   cross:
     strategy:
