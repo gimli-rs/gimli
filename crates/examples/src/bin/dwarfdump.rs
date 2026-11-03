@@ -644,6 +644,7 @@ fn dump_eh_frame<R: Reader, W: Write>(
         object::Architecture::Arm | object::Architecture::Aarch64 => gimli::Arm::register_name,
         object::Architecture::I386 => gimli::X86::register_name,
         object::Architecture::X86_64 => gimli::X86_64::register_name,
+        object::Architecture::TriCore => gimli::TriCore::register_name,
         _ => register_name_none,
     };
     let register_name = &|register| match arch_register_name(register) {
