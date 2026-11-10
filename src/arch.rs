@@ -1124,14 +1124,13 @@ registers!(PowerPc64, {
 
 /// Infineon TriCore architecture specific definitions.
 ///
-/// See section 4.5.1 "DWARF Register Numbers", Table 14 "DWARF Register Mapping
-/// for TriCore" (page 4-9) of the TriCore Embedded Applications Binary Interface
-/// (EABI) User's Manual v2.3. The mapping is unchanged in EABI v2.9.
+/// See section 4.5.1 "DWARF Register Numbers", Table 4-9 "DWARF Register Mapping
+/// for TriCore" of the TriCore Embedded Applications Binary Interface
+/// (EABI) User's Manual v2.9.
 #[derive(Debug, Clone, Copy)]
 pub struct TriCore;
 
 registers!(TriCore, {
-    // Data registers.
     D0 = (0, "d0"),
     D1 = (1, "d1"),
     D2 = (2, "d2"),
@@ -1149,7 +1148,6 @@ registers!(TriCore, {
     D14 = (14, "d14"),
     D15 = (15, "d15"),
 
-    // Address registers.
     A0 = (16, "a0"),
     A1 = (17, "a1"),
     A2 = (18, "a2"),
@@ -1167,7 +1165,6 @@ registers!(TriCore, {
     A14 = (30, "a14"),
     A15 = (31, "a15"),
 
-    // 64-bit extended data registers. `En` is the register pair `D[n+1]:D[n]`.
     E0 = (32, "e0"),
     E2 = (33, "e2"),
     E4 = (34, "e4"),
@@ -1177,7 +1174,6 @@ registers!(TriCore, {
     E12 = (38, "e12"),
     E14 = (39, "e14"),
 
-    // Core special function registers.
     PSW = (40, "psw"),
     PCXI = (41, "pcxi"),
     PC = (42, "pc"),
@@ -1190,7 +1186,7 @@ registers!(TriCore, {
     BTV = (49, "btv"),
 },
 aliases {
-    // Stack pointer and return address register (EABI section 2.2.1.3).
+    // See EABI specification, section 2.2.1.3.
     SP = (26, "sp"),
     RA = (27, "ra"),
 });
@@ -1209,6 +1205,7 @@ mod tests {
             let name = AArch64::register_name(Register(n))
                 .unwrap_or_else(|| panic!("Register {} should have a name.", n));
             assert!(names.insert(name));
+            assert_eq!(AArch64::name_to_register(name), Some(Register(n)));
         }
     }
 
@@ -1223,6 +1220,7 @@ mod tests {
             let name = PowerPc64::register_name(Register(n))
                 .unwrap_or_else(|| panic!("Register {} should have a name.", n));
             assert!(names.insert(name));
+            assert_eq!(PowerPc64::name_to_register(name), Some(Register(n)));
         }
     }
 
