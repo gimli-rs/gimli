@@ -465,6 +465,8 @@ fn load_file_section<'input, 'arena, Endian: gimli::Endianity>(
         id.dwo_name()
     } else if file.format() == object::BinaryFormat::Xcoff {
         id.xcoff_name()
+    } else if file.format() == object::BinaryFormat::Goff {
+        id.goff_name()
     } else {
         Some(id.name())
     };
