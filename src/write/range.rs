@@ -55,7 +55,7 @@ impl RangeListTable {
         &self,
         sections: &mut Sections<W>,
         encoding: Encoding,
-        have_base_address: bool,
+        base_address: BaseAddressState,
     ) -> Result<RangeListOffsets> {
         if self.ranges.is_empty() {
             return Ok(RangeListOffsets::none());
@@ -65,7 +65,7 @@ impl RangeListTable {
             2..=4 => self.write_ranges(
                 &mut sections.debug_ranges,
                 encoding.address_size,
-                have_base_address,
+                base_address,
             ),
             5 => self.write_rnglists(&mut sections.debug_rnglists, encoding),
             _ => Err(Error::UnsupportedVersion(encoding.version)),
@@ -77,11 +77,11 @@ impl RangeListTable {
         &self,
         w: &mut DebugRanges<W>,
         address_size: u8,
-        have_unit_base_address: bool,
+        unit_base_address: BaseAddressState,
     ) -> Result<RangeListOffsets> {
         let mut offsets = Vec::new();
         for range_list in self.ranges.iter() {
-            let mut have_base_address = have_unit_base_address;
+            let mut base_address = unit_base_address;
             offsets.push(w.offset());
             for range in &range_list.0 {
                 // Note that we must ensure none of the ranges have both begin == 0 and end == 0.
@@ -92,13 +92,13 @@ impl RangeListTable {
                         let marker = !0 >> (64 - address_size * 8);
                         w.write_udata(marker, address_size)?;
                         w.write_address(address, address_size)?;
-                        have_base_address = true;
+                        base_address = BaseAddressState::Present;
                     }
                     Range::OffsetPair { begin, end } => {
                         if begin == end {
                             return Err(Error::InvalidRange);
                         }
-                        if !have_base_address {
+                        if base_address == BaseAddressState::Missing {
                             return Err(Error::MissingBaseAddress);
                         }
                         w.write_udata(begin, address_size)?;
@@ -108,7 +108,7 @@ impl RangeListTable {
                         if begin == end {
                             return Err(Error::InvalidRange);
                         }
-                        if have_base_address {
+                        if base_address == BaseAddressState::Present {
                             return Err(Error::UnexpectedBaseAddress);
                         }
                         w.write_address(begin, address_size)?;
@@ -125,7 +125,7 @@ impl RangeListTable {
                         if begin == end {
                             return Err(Error::InvalidRange);
                         }
-                        if have_base_address {
+                        if base_address == BaseAddressState::Present {
                             return Err(Error::UnexpectedBaseAddress);
                         }
                         w.write_address(begin, address_size)?;
@@ -235,6 +235,16 @@ pub enum Range {
         /// Length of range.
         length: u64,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BaseAddressState {
+    /// No base address is set. Only address pairs are allowed.
+    Missing,
+    /// The base address is 0. Both address pairs and offset pairs are allowed.
+    Zero,
+    /// A base address is set. Only offset pairs are allowed.
+    Present,
 }
 
 #[cfg(feature = "read")]
@@ -383,7 +393,9 @@ mod tests {
                     let range_list_id = ranges.add(range_list.clone());
 
                     let mut sections = Sections::new(EndianVec::new(LittleEndian));
-                    let range_list_offsets = ranges.write(&mut sections, encoding, false).unwrap();
+                    let range_list_offsets = ranges
+                        .write(&mut sections, encoding, BaseAddressState::Missing)
+                        .unwrap();
 
                     let read_debug_ranges =
                         read::DebugRanges::new(sections.debug_ranges.slice(), LittleEndian);
@@ -459,7 +471,7 @@ mod tests {
         ];
         for (r, low_pc, err) in [
             (0, None, Err(Error::MissingBaseAddress)),
-            (0, Some(0), Err(Error::MissingBaseAddress)),
+            (0, Some(0), Ok(())),
             (0, Some(1), Ok(())),
             (1, None, Ok(())),
             (1, Some(0), Ok(())),

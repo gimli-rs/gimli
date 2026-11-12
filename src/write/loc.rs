@@ -3,8 +3,8 @@ use core::ops::{Deref, DerefMut};
 
 use crate::common::{Encoding, LocationListsOffset, SectionId};
 use crate::write::{
-    Address, BaseId, DebugInfoFixup, Error, Expression, FnvIndexSet, Result, Section, Sections,
-    UnitOffsets, Writer,
+    Address, BaseAddressState, BaseId, DebugInfoFixup, Error, Expression, FnvIndexSet, Result,
+    Section, Sections, UnitOffsets, Writer,
 };
 
 define_section!(
@@ -58,7 +58,7 @@ impl LocationListTable {
         &self,
         sections: &mut Sections<W>,
         encoding: Encoding,
-        have_base_address: bool,
+        base_address: BaseAddressState,
         unit_offsets: Option<&UnitOffsets>,
     ) -> Result<LocationListOffsets> {
         if self.locations.is_empty() {
@@ -70,7 +70,7 @@ impl LocationListTable {
                 &mut sections.debug_loc,
                 &mut sections.debug_loc_fixups,
                 encoding,
-                have_base_address,
+                base_address,
                 unit_offsets,
             ),
             5 => self.write_loclists(
@@ -89,13 +89,13 @@ impl LocationListTable {
         w: &mut DebugLoc<W>,
         refs: &mut Vec<DebugInfoFixup>,
         encoding: Encoding,
-        have_unit_base_address: bool,
+        unit_base_address: BaseAddressState,
         unit_offsets: Option<&UnitOffsets>,
     ) -> Result<LocationListOffsets> {
         let address_size = encoding.address_size;
         let mut offsets = Vec::new();
         for loc_list in self.locations.iter() {
-            let mut have_base_address = have_unit_base_address;
+            let mut base_address = unit_base_address;
             offsets.push(w.offset());
             for loc in &loc_list.0 {
                 // Note that we must ensure none of the ranges have both begin == 0 and end == 0.
@@ -106,7 +106,7 @@ impl LocationListTable {
                         let marker = !0 >> (64 - address_size * 8);
                         w.write_udata(marker, address_size)?;
                         w.write_address(address, address_size)?;
-                        have_base_address = true;
+                        base_address = BaseAddressState::Present;
                     }
                     Location::OffsetPair {
                         begin,
@@ -116,7 +116,7 @@ impl LocationListTable {
                         if begin == end {
                             return Err(Error::InvalidRange);
                         }
-                        if !have_base_address {
+                        if base_address == BaseAddressState::Missing {
                             return Err(Error::MissingBaseAddress);
                         }
                         w.write_udata(begin, address_size)?;
@@ -131,7 +131,7 @@ impl LocationListTable {
                         if begin == end {
                             return Err(Error::InvalidRange);
                         }
-                        if have_base_address {
+                        if base_address == BaseAddressState::Present {
                             return Err(Error::UnexpectedBaseAddress);
                         }
                         w.write_address(begin, address_size)?;
@@ -153,7 +153,7 @@ impl LocationListTable {
                         if begin == end {
                             return Err(Error::InvalidRange);
                         }
-                        if have_base_address {
+                        if base_address == BaseAddressState::Present {
                             return Err(Error::UnexpectedBaseAddress);
                         }
                         w.write_address(begin, address_size)?;
@@ -497,7 +497,7 @@ mod tests {
 
                     let mut sections = Sections::new(EndianVec::new(LittleEndian));
                     let loc_list_offsets = locations
-                        .write(&mut sections, encoding, false, None)
+                        .write(&mut sections, encoding, BaseAddressState::Missing, None)
                         .unwrap();
                     assert!(sections.debug_loc_fixups.is_empty());
                     assert!(sections.debug_loclists_fixups.is_empty());
@@ -582,7 +582,7 @@ mod tests {
         ];
         for (l, low_pc, err) in [
             (0, None, Err(Error::MissingBaseAddress)),
-            (0, Some(0), Err(Error::MissingBaseAddress)),
+            (0, Some(0), Ok(())),
             (0, Some(1), Ok(())),
             (1, None, Ok(())),
             (1, Some(0), Ok(())),
