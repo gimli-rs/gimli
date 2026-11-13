@@ -1122,6 +1122,75 @@ registers!(PowerPc64, {
     TEXASR = (116, "texasr"),
 });
 
+/// Infineon TriCore architecture specific definitions.
+///
+/// See section 4.5.1 "DWARF Register Numbers", Table 4-9 "DWARF Register Mapping
+/// for TriCore" of the TriCore Embedded Applications Binary Interface
+/// (EABI) User's Manual v2.9.
+#[derive(Debug, Clone, Copy)]
+pub struct TriCore;
+
+registers!(TriCore, {
+    D0 = (0, "d0"),
+    D1 = (1, "d1"),
+    D2 = (2, "d2"),
+    D3 = (3, "d3"),
+    D4 = (4, "d4"),
+    D5 = (5, "d5"),
+    D6 = (6, "d6"),
+    D7 = (7, "d7"),
+    D8 = (8, "d8"),
+    D9 = (9, "d9"),
+    D10 = (10, "d10"),
+    D11 = (11, "d11"),
+    D12 = (12, "d12"),
+    D13 = (13, "d13"),
+    D14 = (14, "d14"),
+    D15 = (15, "d15"),
+
+    A0 = (16, "a0"),
+    A1 = (17, "a1"),
+    A2 = (18, "a2"),
+    A3 = (19, "a3"),
+    A4 = (20, "a4"),
+    A5 = (21, "a5"),
+    A6 = (22, "a6"),
+    A7 = (23, "a7"),
+    A8 = (24, "a8"),
+    A9 = (25, "a9"),
+    A10 = (26, "a10"),
+    A11 = (27, "a11"),
+    A12 = (28, "a12"),
+    A13 = (29, "a13"),
+    A14 = (30, "a14"),
+    A15 = (31, "a15"),
+
+    E0 = (32, "e0"),
+    E2 = (33, "e2"),
+    E4 = (34, "e4"),
+    E6 = (35, "e6"),
+    E8 = (36, "e8"),
+    E10 = (37, "e10"),
+    E12 = (38, "e12"),
+    E14 = (39, "e14"),
+
+    PSW = (40, "psw"),
+    PCXI = (41, "pcxi"),
+    PC = (42, "pc"),
+    FCX = (43, "fcx"),
+    LCX = (44, "lcx"),
+    ISP = (45, "isp"),
+    ICR = (46, "icr"),
+    PIPN = (47, "pipn"),
+    BIV = (48, "biv"),
+    BTV = (49, "btv"),
+},
+aliases {
+    // See EABI specification, section 2.2.1.3.
+    SP = (26, "sp"),
+    RA = (27, "ra"),
+});
+
 #[cfg(test)]
 mod tests {
 
@@ -1136,6 +1205,7 @@ mod tests {
             let name = AArch64::register_name(Register(n))
                 .unwrap_or_else(|| panic!("Register {} should have a name.", n));
             assert!(names.insert(name));
+            assert_eq!(AArch64::name_to_register(name), Some(Register(n)));
         }
     }
 
@@ -1150,6 +1220,22 @@ mod tests {
             let name = PowerPc64::register_name(Register(n))
                 .unwrap_or_else(|| panic!("Register {} should have a name.", n));
             assert!(names.insert(name));
+            assert_eq!(PowerPc64::name_to_register(name), Some(Register(n)));
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn test_tricore_registers() {
+        use super::*;
+        use std::collections::HashSet;
+
+        let mut names = HashSet::new();
+        for n in 0..=49 {
+            let name = TriCore::register_name(Register(n))
+                .unwrap_or_else(|| panic!("Register {} should have a name.", n));
+            assert!(names.insert(name));
+            assert_eq!(TriCore::name_to_register(name), Some(Register(n)));
         }
     }
 }
