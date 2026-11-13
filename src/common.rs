@@ -349,6 +349,33 @@ impl SectionId {
         })
     }
 
+    /// Returns the GOFF section name for this kind.
+    pub fn goff_name(self) -> Option<&'static str> {
+        Some(match self {
+            SectionId::DebugAbbrev => "D_ABREV",
+            SectionId::DebugAranges => "D_ARNGE",
+            SectionId::DebugFrame => "D_FRAME",
+            SectionId::DebugGnuPubNames => "D_GPBNMS",
+            SectionId::DebugGnuPubTypes => "D_GPTYPES",
+            SectionId::DebugInfo => "D_INFO",
+            SectionId::DebugLine => "D_LINE",
+            SectionId::DebugLoc => "D_LOC",
+            SectionId::DebugMacinfo => "D_MACIN",
+            SectionId::DebugPubNames => "D_PBNMS",
+            SectionId::DebugPubTypes => "D_PTYPES",
+            SectionId::DebugRanges => "D_RNGES",
+            SectionId::DebugStr => "D_STR",
+            // DWARF 5
+            SectionId::DebugNames => "D_NAMES",
+            SectionId::DebugStrOffsets => "D_STROFFS",
+            SectionId::DebugAddr => "D_ADDR",
+            SectionId::DebugRngLists => "D_RNGLISTS",
+            SectionId::DebugLocLists => "D_LOCLISTS",
+            SectionId::DebugLineStr => "D_LINESTR",
+            _ => return None,
+        })
+    }
+
     /// Returns true if this is a mergeable string section.
     ///
     /// This is useful for determining the correct section flags.
