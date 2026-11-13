@@ -9,10 +9,10 @@ use crate::common::{
 use crate::constants;
 use crate::leb128::write::{sleb128_size, uleb128_size};
 use crate::write::{
-    Abbreviation, AbbreviationTable, Address, AttributeSpecification, BaseId, Error, Expression,
-    FileId, LineProgram, LineStringId, LineStringTable, LocationListId, LocationListOffsets,
-    LocationListTable, RangeListId, RangeListOffsets, RangeListTable, Result, Section, Sections,
-    StringId, StringTable, Writer,
+    Abbreviation, AbbreviationTable, Address, AttributeSpecification, BaseAddressState, BaseId,
+    Error, Expression, FileId, LineProgram, LineStringId, LineStringTable, LocationListId,
+    LocationListOffsets, LocationListTable, RangeListId, RangeListOffsets, RangeListTable, Result,
+    Section, Sections, StringId, StringTable, Writer,
 };
 
 define_id!(UnitId, "An identifier for a unit in a `UnitTable`.");
@@ -415,17 +415,16 @@ impl Unit {
             &mut codes,
         )?;
 
-        let have_base_address = self.entries[self.root.index].attrs.iter().any(|attr| {
-            attr.name == constants::DW_AT_low_pc
-                && attr.value != AttributeValue::Address(Address::Constant(0))
-        });
-        let range_lists = self
-            .ranges
-            .write(sections, self.encoding, have_base_address)?;
+        let base_address = match self.entries[self.root.index].get(constants::DW_AT_low_pc) {
+            None => BaseAddressState::Missing,
+            Some(AttributeValue::Address(Address::Constant(0))) => BaseAddressState::Zero,
+            Some(_) => BaseAddressState::Present,
+        };
+        let range_lists = self.ranges.write(sections, self.encoding, base_address)?;
         // Location lists can't be written until we have DIE offsets.
         let loc_lists =
             self.locations
-                .write(sections, self.encoding, have_base_address, Some(&offsets))?;
+                .write(sections, self.encoding, base_address, Some(&offsets))?;
 
         let w = &mut sections.debug_info;
         let mut unit_refs = Vec::new();
