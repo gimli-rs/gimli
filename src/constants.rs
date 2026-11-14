@@ -1108,8 +1108,8 @@ impl DwLang {
             DW_LANG_C11 => 201112,
             DW_LANG_C17 => 201710,
             DW_LANG_C23 => 202311,
-            // C++03 doesn't have its own standard `__cplusplus` value
-            DW_LANG_C_plus_plus | DW_LANG_C_plus_plus_03 => 199711,
+            DW_LANG_C_plus_plus => 199711,
+            DW_LANG_C_plus_plus_03 => 200310,
             DW_LANG_C_plus_plus_11 => 201103,
             DW_LANG_C_plus_plus_14 => 201402,
             DW_LANG_C_plus_plus_17 => 201703,
@@ -1263,6 +1263,7 @@ impl DwLname {
             (DW_LNAME_C, ..=201710) => DW_LANG_C17,
             (DW_LNAME_C, ..=202311) => DW_LANG_C23,
             (DW_LNAME_C_plus_plus, ..=199711) => DW_LANG_C_plus_plus,
+            (DW_LNAME_C_plus_plus, ..=200310) => DW_LANG_C_plus_plus_03,
             (DW_LNAME_C_plus_plus, ..=201103) => DW_LANG_C_plus_plus_11,
             (DW_LNAME_C_plus_plus, ..=201402) => DW_LANG_C_plus_plus_14,
             (DW_LNAME_C_plus_plus, ..=201703) => DW_LANG_C_plus_plus_17,
