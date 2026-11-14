@@ -1093,6 +1093,41 @@ impl DwLang {
             _ => return None,
         })
     }
+
+    /// Get the canonical `DW_AT_language_version` for this language, if known.
+    pub fn language_version(self) -> Option<u32> {
+        Some(match self {
+            DW_LANG_Ada83 => 1983,
+            DW_LANG_Ada95 => 1995,
+            DW_LANG_Ada2005 => 2005,
+            DW_LANG_Ada2012 => 2012,
+            DW_LANG_Algol68 => 1968,
+            DW_LANG_C => 0, // K&R
+            DW_LANG_C89 => 198912,
+            DW_LANG_C99 => 199901,
+            DW_LANG_C11 => 201112,
+            DW_LANG_C17 => 201710,
+            DW_LANG_C23 => 202311,
+            // C++03 doesn't have its own standard `__cplusplus` value
+            DW_LANG_C_plus_plus | DW_LANG_C_plus_plus_03 => 199711,
+            DW_LANG_C_plus_plus_11 => 201103,
+            DW_LANG_C_plus_plus_14 => 201402,
+            DW_LANG_C_plus_plus_17 => 201703,
+            DW_LANG_C_plus_plus_20 => 202002,
+            DW_LANG_C_plus_plus_23 => 202302,
+            DW_LANG_Cobol74 => 1974,
+            DW_LANG_Cobol85 => 1985,
+            DW_LANG_Fortran77 => 1977,
+            DW_LANG_Fortran90 => 1990,
+            DW_LANG_Fortran95 => 1995,
+            DW_LANG_Fortran03 => 2003,
+            DW_LANG_Fortran08 => 2008,
+            DW_LANG_Fortran18 => 2018,
+            DW_LANG_Fortran23 => 2023,
+            DW_LANG_Pascal83 => 1983,
+            _ => return None,
+        })
+    }
 }
 
 dw!(
