@@ -1319,6 +1319,14 @@ fn dump_attr_value<R: Reader, W: Write>(
     attr: &gimli::Attribute<R>,
     unit: gimli::UnitRef<R>,
 ) -> Result<()> {
+    // There isn't a LanguageName variant yet, so match it manually.
+    if attr.name() == gimli::DW_AT_language_name {
+        if let Some(value) = attr.u16_value() {
+            writeln!(w, "{}", gimli::DwLname(value))?;
+            return Ok(());
+        }
+    }
+
     let value = attr.value();
     match value {
         gimli::AttributeValue::Addr(address) => {
