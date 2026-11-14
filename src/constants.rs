@@ -865,6 +865,7 @@ dw!(
 /// The encodings of the constants used in the `DW_AT_language` attribute.
 ///
 /// See Section 7.12, Table 7.17.
+/// Further additions are at <https://dwarfstd.org/languages.html>.
 DwLang(u16) {
     DW_LANG_C89 = 0x0001,
     DW_LANG_C = 0x0002,
@@ -912,6 +913,32 @@ DwLang(u16) {
     DW_LANG_Fortran18 = 0x002d,
     DW_LANG_Ada2005 = 0x002e,
     DW_LANG_Ada2012 = 0x002f,
+    DW_LANG_HIP = 0x0030,
+    DW_LANG_Assembly = 0x0031,
+    DW_LANG_C_sharp = 0x0032,
+    DW_LANG_Mojo = 0x0033,
+    DW_LANG_GLSL = 0x0034,
+    DW_LANG_GLSL_ES = 0x0035,
+    DW_LANG_HLSL = 0x0036,
+    DW_LANG_OpenCL_CPP = 0x0037,
+    DW_LANG_CPP_for_OpenCL = 0x0038,
+    DW_LANG_SYCL = 0x0039,
+    DW_LANG_C_plus_plus_23 = 0x003a,
+    DW_LANG_Odin = 0x003b,
+    DW_LANG_P4 = 0x003c,
+    DW_LANG_Metal = 0x003d,
+    DW_LANG_C23 = 0x003e,
+    DW_LANG_Fortran23 = 0x003f,
+    DW_LANG_Ruby = 0x0040,
+    DW_LANG_Move = 0x0041,
+    DW_LANG_Hylo = 0x0042,
+    DW_LANG_V = 0x0043,
+    DW_LANG_Algol68 = 0x0044,
+    DW_LANG_Nim = 0x0045,
+    DW_LANG_Erlang = 0x0046,
+    DW_LANG_Elixir = 0x0047,
+    DW_LANG_Gleam = 0x0048,
+    DW_LANG_Roc = 0x0049,
 
     DW_LANG_lo_user = 0x8000,
     DW_LANG_hi_user = 0xffff,
