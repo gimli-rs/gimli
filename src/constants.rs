@@ -513,6 +513,11 @@ DwAt(u16) {
     DW_AT_defaulted = 0x8b,
     DW_AT_loclists_base = 0x8c,
 
+// DWARF 6 (draft).
+// NB: the language constants are fixed and explicitly allowed in 5.
+    DW_AT_language_name = 0x90,
+    DW_AT_language_version = 0x91,
+
     DW_AT_lo_user = 0x2000,
     DW_AT_hi_user = 0x3fff,
 
