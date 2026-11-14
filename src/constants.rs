@@ -988,8 +988,6 @@ impl DwLang {
             | DW_LANG_C_plus_plus_17
             | DW_LANG_C_plus_plus_20
             | DW_LANG_C17
-            | DW_LANG_Ada2005
-            | DW_LANG_Ada2012
             | DW_LANG_HIP
             | DW_LANG_Assembly
             | DW_LANG_C_sharp
@@ -1012,11 +1010,16 @@ impl DwLang {
             | DW_LANG_Nim
             | DW_LANG_Gleam
             | DW_LANG_Roc => Some(0),
+            // Note: Ada2005 and Ada2012 are listed with default 0 on the DWARF website, but there
+            // is some debate about this. We are returning 1 to be consistent with the other Ada
+            // entries, including the newer `DW_LNAME_Ada`.
+            // See <https://lists.dwarfstd.org/pipermail/dwarf-discuss/2024-November/002563.html>
             DW_LANG_Ada83 | DW_LANG_Cobol74 | DW_LANG_Cobol85 | DW_LANG_Fortran77
             | DW_LANG_Fortran90 | DW_LANG_Pascal83 | DW_LANG_Modula2 | DW_LANG_Ada95
             | DW_LANG_Fortran95 | DW_LANG_PLI | DW_LANG_Modula3 | DW_LANG_Julia
-            | DW_LANG_Fortran03 | DW_LANG_Fortran08 | DW_LANG_Fortran18 | DW_LANG_Fortran23
-            | DW_LANG_Algol68 | DW_LANG_Erlang | DW_LANG_Elixir => Some(1),
+            | DW_LANG_Fortran03 | DW_LANG_Fortran08 | DW_LANG_Fortran18 | DW_LANG_Ada2005
+            | DW_LANG_Ada2012 | DW_LANG_Fortran23 | DW_LANG_Algol68 | DW_LANG_Erlang
+            | DW_LANG_Elixir => Some(1),
             _ => None,
         }
     }
