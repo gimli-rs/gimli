@@ -1087,6 +1087,58 @@ DwLname(u16) {
     DW_LNAME_hi_user = 0xffff,
 });
 
+impl DwLname {
+    /// Get the default DW_AT_lower_bound for this language.
+    pub fn default_lower_bound(self) -> Option<usize> {
+        match self {
+            DW_LNAME_BLISS
+            | DW_LNAME_C
+            | DW_LNAME_C_plus_plus
+            | DW_LNAME_Crystal
+            | DW_LNAME_D
+            | DW_LNAME_Dylan
+            | DW_LNAME_Go
+            | DW_LNAME_Haskell
+            | DW_LNAME_Java
+            | DW_LNAME_Kotlin
+            | DW_LNAME_ObjC
+            | DW_LNAME_ObjC_plus_plus
+            | DW_LNAME_OCaml
+            | DW_LNAME_OpenCL_C
+            | DW_LNAME_Python
+            | DW_LNAME_RenderScript
+            | DW_LNAME_Rust
+            | DW_LNAME_Swift
+            | DW_LNAME_UPC
+            | DW_LNAME_Zig
+            | DW_LNAME_Assembly
+            | DW_LNAME_C_sharp
+            | DW_LNAME_Mojo
+            | DW_LNAME_GLSL
+            | DW_LNAME_GLSL_ES
+            | DW_LNAME_HLSL
+            | DW_LNAME_OpenCL_CPP
+            | DW_LNAME_CPP_for_OpenCL
+            | DW_LNAME_SYCL
+            | DW_LNAME_Ruby
+            | DW_LNAME_Move
+            | DW_LNAME_Hylo
+            | DW_LNAME_HIP
+            | DW_LNAME_Odin
+            | DW_LNAME_P4
+            | DW_LNAME_Metal
+            | DW_LNAME_V
+            | DW_LNAME_Nim
+            | DW_LNAME_Gleam
+            | DW_LNAME_Roc => Some(0),
+            DW_LNAME_Ada | DW_LNAME_Cobol | DW_LNAME_Fortran | DW_LNAME_Julia
+            | DW_LNAME_Modula2 | DW_LNAME_Modula3 | DW_LNAME_Pascal | DW_LNAME_PLI
+            | DW_LNAME_Algol68 | DW_LNAME_Erlang | DW_LNAME_Elixir => Some(1),
+            _ => None,
+        }
+    }
+}
+
 dw!(
 /// The encodings of the constants used in the `DW_AT_address_class` attribute.
 ///
