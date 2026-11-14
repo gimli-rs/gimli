@@ -976,11 +976,42 @@ impl DwLang {
             | DW_LANG_Dylan
             | DW_LANG_C_plus_plus_14
             | DW_LANG_RenderScript
-            | DW_LANG_BLISS => Some(0),
+            | DW_LANG_BLISS
+            | DW_LANG_Kotlin
+            | DW_LANG_Zig
+            | DW_LANG_Crystal
+            | DW_LANG_C_plus_plus_17
+            | DW_LANG_C_plus_plus_20
+            | DW_LANG_C17
+            | DW_LANG_Ada2005
+            | DW_LANG_Ada2012
+            | DW_LANG_HIP
+            | DW_LANG_Assembly
+            | DW_LANG_C_sharp
+            | DW_LANG_Mojo
+            | DW_LANG_GLSL
+            | DW_LANG_GLSL_ES
+            | DW_LANG_HLSL
+            | DW_LANG_OpenCL_CPP
+            | DW_LANG_CPP_for_OpenCL
+            | DW_LANG_SYCL
+            | DW_LANG_C_plus_plus_23
+            | DW_LANG_Odin
+            | DW_LANG_P4
+            | DW_LANG_Metal
+            | DW_LANG_C23
+            | DW_LANG_Ruby
+            | DW_LANG_Move
+            | DW_LANG_Hylo
+            | DW_LANG_V
+            | DW_LANG_Nim
+            | DW_LANG_Gleam
+            | DW_LANG_Roc => Some(0),
             DW_LANG_Ada83 | DW_LANG_Cobol74 | DW_LANG_Cobol85 | DW_LANG_Fortran77
             | DW_LANG_Fortran90 | DW_LANG_Pascal83 | DW_LANG_Modula2 | DW_LANG_Ada95
             | DW_LANG_Fortran95 | DW_LANG_PLI | DW_LANG_Modula3 | DW_LANG_Julia
-            | DW_LANG_Fortran03 | DW_LANG_Fortran08 => Some(1),
+            | DW_LANG_Fortran03 | DW_LANG_Fortran08 | DW_LANG_Fortran18 | DW_LANG_Fortran23
+            | DW_LANG_Algol68 | DW_LANG_Erlang | DW_LANG_Elixir => Some(1),
             _ => None,
         }
     }
