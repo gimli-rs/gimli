@@ -956,7 +956,7 @@ DwLang(u16) {
 });
 
 impl DwLang {
-    /// Get the default DW_AT_lower_bound for this language.
+    /// Get the default `DW_AT_lower_bound` for this language.
     pub fn default_lower_bound(self) -> Option<usize> {
         match self {
             DW_LANG_C89
@@ -1091,7 +1091,7 @@ DwLname(u16) {
 });
 
 impl DwLname {
-    /// Get the default DW_AT_lower_bound for this language.
+    /// Get the default `DW_AT_lower_bound` for this language.
     pub fn default_lower_bound(self) -> Option<usize> {
         match self {
             DW_LNAME_BLISS
