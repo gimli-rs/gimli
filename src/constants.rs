@@ -513,6 +513,11 @@ DwAt(u16) {
     DW_AT_defaulted = 0x8b,
     DW_AT_loclists_base = 0x8c,
 
+// DWARF 6 (draft).
+// NB: the language constants are fixed and explicitly allowed in 5.
+    DW_AT_language_name = 0x90,
+    DW_AT_language_version = 0x91,
+
     DW_AT_lo_user = 0x2000,
     DW_AT_hi_user = 0x3fff,
 
@@ -865,6 +870,7 @@ dw!(
 /// The encodings of the constants used in the `DW_AT_language` attribute.
 ///
 /// See Section 7.12, Table 7.17.
+/// Further additions are at <https://dwarfstd.org/languages.html>.
 DwLang(u16) {
     DW_LANG_C89 = 0x0001,
     DW_LANG_C = 0x0002,
@@ -912,6 +918,32 @@ DwLang(u16) {
     DW_LANG_Fortran18 = 0x002d,
     DW_LANG_Ada2005 = 0x002e,
     DW_LANG_Ada2012 = 0x002f,
+    DW_LANG_HIP = 0x0030,
+    DW_LANG_Assembly = 0x0031,
+    DW_LANG_C_sharp = 0x0032,
+    DW_LANG_Mojo = 0x0033,
+    DW_LANG_GLSL = 0x0034,
+    DW_LANG_GLSL_ES = 0x0035,
+    DW_LANG_HLSL = 0x0036,
+    DW_LANG_OpenCL_CPP = 0x0037,
+    DW_LANG_CPP_for_OpenCL = 0x0038,
+    DW_LANG_SYCL = 0x0039,
+    DW_LANG_C_plus_plus_23 = 0x003a,
+    DW_LANG_Odin = 0x003b,
+    DW_LANG_P4 = 0x003c,
+    DW_LANG_Metal = 0x003d,
+    DW_LANG_C23 = 0x003e,
+    DW_LANG_Fortran23 = 0x003f,
+    DW_LANG_Ruby = 0x0040,
+    DW_LANG_Move = 0x0041,
+    DW_LANG_Hylo = 0x0042,
+    DW_LANG_V = 0x0043,
+    DW_LANG_Algol68 = 0x0044,
+    DW_LANG_Nim = 0x0045,
+    DW_LANG_Erlang = 0x0046,
+    DW_LANG_Elixir = 0x0047,
+    DW_LANG_Gleam = 0x0048,
+    DW_LANG_Roc = 0x0049,
 
     DW_LANG_lo_user = 0x8000,
     DW_LANG_hi_user = 0xffff,
@@ -924,7 +956,7 @@ DwLang(u16) {
 });
 
 impl DwLang {
-    /// Get the default DW_AT_lower_bound for this language.
+    /// Get the default `DW_AT_lower_bound` for this language.
     pub fn default_lower_bound(self) -> Option<usize> {
         match self {
             DW_LANG_C89
@@ -949,13 +981,350 @@ impl DwLang {
             | DW_LANG_Dylan
             | DW_LANG_C_plus_plus_14
             | DW_LANG_RenderScript
-            | DW_LANG_BLISS => Some(0),
+            | DW_LANG_BLISS
+            | DW_LANG_Kotlin
+            | DW_LANG_Zig
+            | DW_LANG_Crystal
+            | DW_LANG_C_plus_plus_17
+            | DW_LANG_C_plus_plus_20
+            | DW_LANG_C17
+            | DW_LANG_HIP
+            | DW_LANG_Assembly
+            | DW_LANG_C_sharp
+            | DW_LANG_Mojo
+            | DW_LANG_GLSL
+            | DW_LANG_GLSL_ES
+            | DW_LANG_HLSL
+            | DW_LANG_OpenCL_CPP
+            | DW_LANG_CPP_for_OpenCL
+            | DW_LANG_SYCL
+            | DW_LANG_C_plus_plus_23
+            | DW_LANG_Odin
+            | DW_LANG_P4
+            | DW_LANG_Metal
+            | DW_LANG_C23
+            | DW_LANG_Ruby
+            | DW_LANG_Move
+            | DW_LANG_Hylo
+            | DW_LANG_V
+            | DW_LANG_Nim
+            | DW_LANG_Gleam
+            | DW_LANG_Roc => Some(0),
+            // Note: Ada2005 and Ada2012 are listed with default 0 on the DWARF website, but there
+            // is some debate about this. We are returning 1 to be consistent with the other Ada
+            // entries, including the newer `DW_LNAME_Ada`.
+            // See <https://lists.dwarfstd.org/pipermail/dwarf-discuss/2024-November/002563.html>
             DW_LANG_Ada83 | DW_LANG_Cobol74 | DW_LANG_Cobol85 | DW_LANG_Fortran77
             | DW_LANG_Fortran90 | DW_LANG_Pascal83 | DW_LANG_Modula2 | DW_LANG_Ada95
             | DW_LANG_Fortran95 | DW_LANG_PLI | DW_LANG_Modula3 | DW_LANG_Julia
-            | DW_LANG_Fortran03 | DW_LANG_Fortran08 => Some(1),
+            | DW_LANG_Fortran03 | DW_LANG_Fortran08 | DW_LANG_Fortran18 | DW_LANG_Ada2005
+            | DW_LANG_Ada2012 | DW_LANG_Fortran23 | DW_LANG_Algol68 | DW_LANG_Erlang
+            | DW_LANG_Elixir => Some(1),
             _ => None,
         }
+    }
+
+    /// Get the corresponding `DW_AT_language_name` for this language.
+    pub fn language_name(self) -> Option<DwLname> {
+        Some(match self {
+            DW_LANG_Ada83 | DW_LANG_Ada95 | DW_LANG_Ada2005 | DW_LANG_Ada2012 => DW_LNAME_Ada,
+            DW_LANG_Algol68 => DW_LNAME_Algol68,
+            DW_LANG_Assembly
+            | DW_LANG_Mips_Assembler
+            | DW_LANG_SUN_Assembler
+            | DW_LANG_ALTIUM_Assembler => DW_LNAME_Assembly,
+            DW_LANG_BLISS => DW_LNAME_BLISS,
+            DW_LANG_C | DW_LANG_C89 | DW_LANG_C99 | DW_LANG_C11 | DW_LANG_C17 | DW_LANG_C23 => {
+                DW_LNAME_C
+            }
+            DW_LANG_CPP_for_OpenCL => DW_LNAME_CPP_for_OpenCL,
+            DW_LANG_C_plus_plus
+            | DW_LANG_C_plus_plus_03
+            | DW_LANG_C_plus_plus_11
+            | DW_LANG_C_plus_plus_14
+            | DW_LANG_C_plus_plus_17
+            | DW_LANG_C_plus_plus_20
+            | DW_LANG_C_plus_plus_23 => DW_LNAME_C_plus_plus,
+            DW_LANG_C_sharp => DW_LNAME_C_sharp,
+            DW_LANG_Cobol74 | DW_LANG_Cobol85 => DW_LNAME_Cobol,
+            DW_LANG_Crystal => DW_LNAME_Crystal,
+            DW_LANG_D => DW_LNAME_D,
+            DW_LANG_Dylan => DW_LNAME_Dylan,
+            DW_LANG_Elixir => DW_LNAME_Elixir,
+            DW_LANG_Erlang => DW_LNAME_Erlang,
+            DW_LANG_Fortran77 | DW_LANG_Fortran90 | DW_LANG_Fortran95 | DW_LANG_Fortran03
+            | DW_LANG_Fortran08 | DW_LANG_Fortran18 | DW_LANG_Fortran23 => DW_LNAME_Fortran,
+            DW_LANG_GLSL => DW_LNAME_GLSL,
+            DW_LANG_GLSL_ES => DW_LNAME_GLSL_ES,
+            DW_LANG_Gleam => DW_LNAME_Gleam,
+            DW_LANG_Go => DW_LNAME_Go,
+            DW_LANG_HIP => DW_LNAME_HIP,
+            DW_LANG_HLSL => DW_LNAME_HLSL,
+            DW_LANG_Haskell => DW_LNAME_Haskell,
+            DW_LANG_Hylo => DW_LNAME_Hylo,
+            DW_LANG_Java => DW_LNAME_Java,
+            DW_LANG_Julia => DW_LNAME_Julia,
+            DW_LANG_Kotlin => DW_LNAME_Kotlin,
+            DW_LANG_Metal => DW_LNAME_Metal,
+            DW_LANG_Modula2 => DW_LNAME_Modula2,
+            DW_LANG_Modula3 => DW_LNAME_Modula3,
+            DW_LANG_Mojo => DW_LNAME_Mojo,
+            DW_LANG_Move => DW_LNAME_Move,
+            DW_LANG_Nim => DW_LNAME_Nim,
+            DW_LANG_OCaml => DW_LNAME_OCaml,
+            DW_LANG_ObjC => DW_LNAME_ObjC,
+            DW_LANG_ObjC_plus_plus => DW_LNAME_ObjC_plus_plus,
+            DW_LANG_Odin => DW_LNAME_Odin,
+            DW_LANG_OpenCL => DW_LNAME_OpenCL_C,
+            DW_LANG_OpenCL_CPP => DW_LNAME_OpenCL_CPP,
+            DW_LANG_P4 => DW_LNAME_P4,
+            DW_LANG_PLI => DW_LNAME_PLI,
+            DW_LANG_Pascal83 | DW_LANG_BORLAND_Delphi => DW_LNAME_Pascal,
+            DW_LANG_Python => DW_LNAME_Python,
+            DW_LANG_RenderScript | DW_LANG_GOOGLE_RenderScript => DW_LNAME_RenderScript,
+            DW_LANG_Roc => DW_LNAME_Roc,
+            DW_LANG_Ruby => DW_LNAME_Ruby,
+            DW_LANG_Rust => DW_LNAME_Rust,
+            DW_LANG_SYCL => DW_LNAME_SYCL,
+            DW_LANG_Swift => DW_LNAME_Swift,
+            DW_LANG_UPC => DW_LNAME_UPC,
+            DW_LANG_V => DW_LNAME_V,
+            DW_LANG_Zig => DW_LNAME_Zig,
+            _ => return None,
+        })
+    }
+
+    /// Get the canonical `DW_AT_language_version` for this language, if known.
+    pub fn language_version(self) -> Option<u32> {
+        Some(match self {
+            DW_LANG_Ada83 => 1983,
+            DW_LANG_Ada95 => 1995,
+            DW_LANG_Ada2005 => 2005,
+            DW_LANG_Ada2012 => 2012,
+            DW_LANG_Algol68 => 1968,
+            DW_LANG_C => 0, // K&R
+            DW_LANG_C89 => 198912,
+            DW_LANG_C99 => 199901,
+            DW_LANG_C11 => 201112,
+            DW_LANG_C17 => 201710,
+            DW_LANG_C23 => 202311,
+            DW_LANG_C_plus_plus => 199711,
+            DW_LANG_C_plus_plus_03 => 200310,
+            DW_LANG_C_plus_plus_11 => 201103,
+            DW_LANG_C_plus_plus_14 => 201402,
+            DW_LANG_C_plus_plus_17 => 201703,
+            DW_LANG_C_plus_plus_20 => 202002,
+            DW_LANG_C_plus_plus_23 => 202302,
+            DW_LANG_Cobol74 => 1974,
+            DW_LANG_Cobol85 => 1985,
+            DW_LANG_Fortran77 => 1977,
+            DW_LANG_Fortran90 => 1990,
+            DW_LANG_Fortran95 => 1995,
+            DW_LANG_Fortran03 => 2003,
+            DW_LANG_Fortran08 => 2008,
+            DW_LANG_Fortran18 => 2018,
+            DW_LANG_Fortran23 => 2023,
+            DW_LANG_Pascal83 => 1983,
+            _ => return None,
+        })
+    }
+}
+
+dw!(
+/// The encodings of the constants used in the `DW_AT_language_name` attribute.
+///
+/// These are part of the Draft of DWARF Version 6, with an exception fixing
+/// the current constants and permitting their use in DWARF Version 5.
+///
+/// See draft Section 8.12, Table 8.17.
+/// Also available at <https://dwarfstd.org/languages-v6.html>.
+DwLname(u16) {
+    DW_LNAME_Ada = 0x0001,
+    DW_LNAME_BLISS = 0x0002,
+    DW_LNAME_C = 0x0003,
+    DW_LNAME_C_plus_plus = 0x0004,
+    DW_LNAME_Cobol = 0x0005,
+    DW_LNAME_Crystal = 0x0006,
+    DW_LNAME_D = 0x0007,
+    DW_LNAME_Dylan = 0x0008,
+    DW_LNAME_Fortran = 0x0009,
+    DW_LNAME_Go = 0x000a,
+    DW_LNAME_Haskell = 0x000b,
+    DW_LNAME_Java = 0x000c,
+    DW_LNAME_Julia = 0x000d,
+    DW_LNAME_Kotlin = 0x000e,
+    DW_LNAME_Modula2 = 0x000f,
+    DW_LNAME_Modula3 = 0x0010,
+    DW_LNAME_ObjC = 0x0011,
+    DW_LNAME_ObjC_plus_plus = 0x0012,
+    DW_LNAME_OCaml = 0x0013,
+    DW_LNAME_OpenCL_C = 0x0014,
+    DW_LNAME_Pascal = 0x0015,
+    DW_LNAME_PLI = 0x0016,
+    DW_LNAME_Python = 0x0017,
+    DW_LNAME_RenderScript = 0x0018,
+    DW_LNAME_Rust = 0x0019,
+    DW_LNAME_Swift = 0x001a,
+    DW_LNAME_UPC = 0x001b,
+    DW_LNAME_Zig = 0x001c,
+    DW_LNAME_Assembly = 0x001d,
+    DW_LNAME_C_sharp = 0x001e,
+    DW_LNAME_Mojo = 0x001f,
+    DW_LNAME_GLSL = 0x0020,
+    DW_LNAME_GLSL_ES = 0x0021,
+    DW_LNAME_HLSL = 0x0022,
+    DW_LNAME_OpenCL_CPP = 0x0023,
+    DW_LNAME_CPP_for_OpenCL = 0x0024,
+    DW_LNAME_SYCL = 0x0025,
+    DW_LNAME_Ruby = 0x0026,
+    DW_LNAME_Move = 0x0027,
+    DW_LNAME_Hylo = 0x0028,
+    DW_LNAME_HIP = 0x0029,
+    DW_LNAME_Odin = 0x002a,
+    DW_LNAME_P4 = 0x002b,
+    DW_LNAME_Metal = 0x002c,
+    DW_LNAME_V = 0x002d,
+    DW_LNAME_Algol68 = 0x002e,
+    DW_LNAME_Nim = 0x002f,
+    DW_LNAME_Erlang = 0x0030,
+    DW_LNAME_Elixir = 0x0031,
+    DW_LNAME_Gleam = 0x0032,
+    DW_LNAME_Roc = 0x0033,
+
+    DW_LNAME_lo_user = 0x8000,
+    DW_LNAME_hi_user = 0xffff,
+});
+
+impl DwLname {
+    /// Get the default `DW_AT_lower_bound` for this language.
+    pub fn default_lower_bound(self) -> Option<usize> {
+        match self {
+            DW_LNAME_BLISS
+            | DW_LNAME_C
+            | DW_LNAME_C_plus_plus
+            | DW_LNAME_Crystal
+            | DW_LNAME_D
+            | DW_LNAME_Dylan
+            | DW_LNAME_Go
+            | DW_LNAME_Haskell
+            | DW_LNAME_Java
+            | DW_LNAME_Kotlin
+            | DW_LNAME_ObjC
+            | DW_LNAME_ObjC_plus_plus
+            | DW_LNAME_OCaml
+            | DW_LNAME_OpenCL_C
+            | DW_LNAME_Python
+            | DW_LNAME_RenderScript
+            | DW_LNAME_Rust
+            | DW_LNAME_Swift
+            | DW_LNAME_UPC
+            | DW_LNAME_Zig
+            | DW_LNAME_Assembly
+            | DW_LNAME_C_sharp
+            | DW_LNAME_Mojo
+            | DW_LNAME_GLSL
+            | DW_LNAME_GLSL_ES
+            | DW_LNAME_HLSL
+            | DW_LNAME_OpenCL_CPP
+            | DW_LNAME_CPP_for_OpenCL
+            | DW_LNAME_SYCL
+            | DW_LNAME_Ruby
+            | DW_LNAME_Move
+            | DW_LNAME_Hylo
+            | DW_LNAME_HIP
+            | DW_LNAME_Odin
+            | DW_LNAME_P4
+            | DW_LNAME_Metal
+            | DW_LNAME_V
+            | DW_LNAME_Nim
+            | DW_LNAME_Gleam
+            | DW_LNAME_Roc => Some(0),
+            DW_LNAME_Ada | DW_LNAME_Cobol | DW_LNAME_Fortran | DW_LNAME_Julia
+            | DW_LNAME_Modula2 | DW_LNAME_Modula3 | DW_LNAME_Pascal | DW_LNAME_PLI
+            | DW_LNAME_Algol68 | DW_LNAME_Erlang | DW_LNAME_Elixir => Some(1),
+            _ => None,
+        }
+    }
+
+    /// Get the corresponding `DW_AT_language` for this language name and version, if known.
+    pub fn language(self, version: u32) -> Option<DwLang> {
+        // Table 4.2 recommends treating the known YYYYMM values as maximums, so compilers can
+        // produce upcoming specifications without knowing the final date.
+        Some(match (self, version) {
+            (DW_LNAME_Ada, 1983) => DW_LANG_Ada83,
+            (DW_LNAME_Ada, 1995) => DW_LANG_Ada95,
+            (DW_LNAME_Ada, 2005) => DW_LANG_Ada2005,
+            (DW_LNAME_Ada, 2012) => DW_LANG_Ada2012,
+            (DW_LNAME_BLISS, _) => DW_LANG_BLISS,
+            (DW_LNAME_C, 0) => DW_LANG_C, // K&R
+            (DW_LNAME_C, ..=198912) => DW_LANG_C89,
+            (DW_LNAME_C, ..=199901) => DW_LANG_C99,
+            (DW_LNAME_C, ..=201112) => DW_LANG_C11,
+            (DW_LNAME_C, ..=201710) => DW_LANG_C17,
+            (DW_LNAME_C, ..=202311) => DW_LANG_C23,
+            (DW_LNAME_C_plus_plus, ..=199711) => DW_LANG_C_plus_plus,
+            (DW_LNAME_C_plus_plus, ..=200310) => DW_LANG_C_plus_plus_03,
+            (DW_LNAME_C_plus_plus, ..=201103) => DW_LANG_C_plus_plus_11,
+            (DW_LNAME_C_plus_plus, ..=201402) => DW_LANG_C_plus_plus_14,
+            (DW_LNAME_C_plus_plus, ..=201703) => DW_LANG_C_plus_plus_17,
+            (DW_LNAME_C_plus_plus, ..=202002) => DW_LANG_C_plus_plus_20,
+            (DW_LNAME_C_plus_plus, ..=202302) => DW_LANG_C_plus_plus_23,
+            (DW_LNAME_Cobol, 1974) => DW_LANG_Cobol74,
+            (DW_LNAME_Cobol, 1985) => DW_LANG_Cobol85,
+            (DW_LNAME_Crystal, _) => DW_LANG_Crystal,
+            (DW_LNAME_D, _) => DW_LANG_D,
+            (DW_LNAME_Dylan, _) => DW_LANG_Dylan,
+            (DW_LNAME_Fortran, 1977) => DW_LANG_Fortran77,
+            (DW_LNAME_Fortran, 1990) => DW_LANG_Fortran90,
+            (DW_LNAME_Fortran, 1995) => DW_LANG_Fortran95,
+            (DW_LNAME_Fortran, 2003) => DW_LANG_Fortran03,
+            (DW_LNAME_Fortran, 2008) => DW_LANG_Fortran08,
+            (DW_LNAME_Fortran, 2018) => DW_LANG_Fortran18,
+            (DW_LNAME_Fortran, 2023) => DW_LANG_Fortran23,
+            (DW_LNAME_Go, _) => DW_LANG_Go,
+            (DW_LNAME_Haskell, _) => DW_LANG_Haskell,
+            (DW_LNAME_Java, _) => DW_LANG_Java,
+            (DW_LNAME_Julia, _) => DW_LANG_Julia,
+            (DW_LNAME_Kotlin, _) => DW_LANG_Kotlin,
+            (DW_LNAME_Modula2, _) => DW_LANG_Modula2,
+            (DW_LNAME_Modula3, _) => DW_LANG_Modula3,
+            (DW_LNAME_ObjC, _) => DW_LANG_ObjC,
+            (DW_LNAME_ObjC_plus_plus, _) => DW_LANG_ObjC_plus_plus,
+            (DW_LNAME_OCaml, _) => DW_LANG_OCaml,
+            (DW_LNAME_OpenCL_C, _) => DW_LANG_OpenCL,
+            (DW_LNAME_Pascal, 1983) => DW_LANG_Pascal83,
+            (DW_LNAME_PLI, _) => DW_LANG_PLI,
+            (DW_LNAME_Python, _) => DW_LANG_Python,
+            (DW_LNAME_RenderScript, _) => DW_LANG_RenderScript,
+            (DW_LNAME_Rust, _) => DW_LANG_Rust,
+            (DW_LNAME_Swift, _) => DW_LANG_Swift,
+            (DW_LNAME_UPC, _) => DW_LANG_UPC,
+            (DW_LNAME_Zig, _) => DW_LANG_Zig,
+            (DW_LNAME_Assembly, _) => DW_LANG_Assembly,
+            (DW_LNAME_C_sharp, _) => DW_LANG_C_sharp,
+            (DW_LNAME_Mojo, _) => DW_LANG_Mojo,
+            (DW_LNAME_GLSL, _) => DW_LANG_GLSL,
+            (DW_LNAME_GLSL_ES, _) => DW_LANG_GLSL_ES,
+            (DW_LNAME_HLSL, _) => DW_LANG_HLSL,
+            (DW_LNAME_OpenCL_CPP, _) => DW_LANG_OpenCL_CPP,
+            (DW_LNAME_CPP_for_OpenCL, _) => DW_LANG_CPP_for_OpenCL,
+            (DW_LNAME_SYCL, _) => DW_LANG_SYCL,
+            (DW_LNAME_Ruby, _) => DW_LANG_Ruby,
+            (DW_LNAME_Move, _) => DW_LANG_Move,
+            (DW_LNAME_Hylo, _) => DW_LANG_Hylo,
+            (DW_LNAME_HIP, _) => DW_LANG_HIP,
+            (DW_LNAME_Odin, _) => DW_LANG_Odin,
+            (DW_LNAME_P4, _) => DW_LANG_P4,
+            (DW_LNAME_Metal, _) => DW_LANG_Metal,
+            (DW_LNAME_V, _) => DW_LANG_V,
+            (DW_LNAME_Algol68, 1968) => DW_LANG_Algol68,
+            (DW_LNAME_Nim, _) => DW_LANG_Nim,
+            (DW_LNAME_Erlang, _) => DW_LANG_Erlang,
+            (DW_LNAME_Elixir, _) => DW_LANG_Elixir,
+            (DW_LNAME_Gleam, _) => DW_LANG_Gleam,
+            (DW_LNAME_Roc, _) => DW_LANG_Roc,
+            _ => return None,
+        })
     }
 }
 
