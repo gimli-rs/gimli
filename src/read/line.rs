@@ -1123,11 +1123,12 @@ where
             if directory == 0 {
                 self.comp_dir.clone().map(AttributeValue::String)
             } else {
-                let directory = directory as usize - 1;
+                let directory = usize::try_from(directory - 1).ok()?;
                 self.include_directories.get(directory).cloned()
             }
         } else {
-            self.include_directories.get(directory as usize).cloned()
+            let directory = usize::try_from(directory).ok()?;
+            self.include_directories.get(directory).cloned()
         }
     }
 
@@ -1189,11 +1190,12 @@ where
             if file == 0 {
                 self.comp_file.as_ref()
             } else {
-                let file = file as usize - 1;
+                let file = usize::try_from(file - 1).ok()?;
                 self.file_names.get(file)
             }
         } else {
-            self.file_names.get(file as usize)
+            let file = usize::try_from(file).ok()?;
+            self.file_names.get(file)
         }
     }
 
@@ -2643,6 +2645,24 @@ mod tests {
 
             assert_eq!(row.file(&header), None);
         }
+    }
+
+    #[test]
+    fn test_file_entry_index_usize_wrap() {
+        // On 32-bit targets these indices must not be truncated to a valid index.
+        let wrap = u64::from(u32::MAX) + 1;
+        let mut header = make_test_header(EndianSlice::new(&[], LittleEndian));
+        let dir = AttributeValue::String(EndianSlice::new(b"dir", LittleEndian));
+        header.include_directories.push(dir);
+
+        for index in [wrap, wrap + 1] {
+            assert_eq!(header.file(index), None);
+            assert_eq!(header.directory(index), None);
+        }
+
+        header.encoding.version = 5;
+        assert_eq!(header.file(wrap), None);
+        assert_eq!(header.directory(wrap), None);
     }
 
     #[test]
