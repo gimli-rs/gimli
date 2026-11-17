@@ -181,7 +181,7 @@ impl<A: ArrayLike> ArrayVec<A> {
     }
 
     pub fn swap_remove(&mut self, index: usize) -> A::Item {
-        assert!(self.len > 0);
+        assert!(index < self.len);
         A::as_mut_slice(&mut self.storage).swap(index, self.len - 1);
         self.pop().unwrap()
     }
@@ -261,5 +261,19 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[should_panic]
+    fn test_array_vec_swap_remove_out_of_bounds() {
+        let mut vec = ArrayVec::<[u32; 4]>::new();
+        vec.try_push(1).unwrap();
+        // Index 1 is within the storage capacity but past the initialized length.
+        vec.swap_remove(1);
     }
 }
