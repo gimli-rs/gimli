@@ -181,7 +181,7 @@ impl<A: ArrayLike> ArrayVec<A> {
     }
 
     pub fn swap_remove(&mut self, index: usize) -> A::Item {
-        assert!(self.len > 0);
+        assert!(index < self.len);
         A::as_mut_slice(&mut self.storage).swap(index, self.len - 1);
         self.pop().unwrap()
     }
