@@ -277,7 +277,7 @@ impl<R: Reader> RangeLists<R> {
         )?)?;
         input
             .read_offset(format)
-            .map(|x| RangeListsOffset(base.0 + x))
+            .map(|x| RangeListsOffset(base.0.wrapping_add(x)))
     }
 
     /// Call `Reader::lookup_offset_id` for each section, and return the first match.
