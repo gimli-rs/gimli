@@ -784,11 +784,11 @@ pub(crate) mod convert {
                     return Err(ConvertError::UnsupportedCfiInstruction);
                 }
                 read::CallFrameInstruction::AdvanceLoc { delta } => {
-                    *offset = u64::from(delta)
-                        .checked_mul(from_cie.code_alignment_factor())
-                        .and_then(|delta| delta.checked_add(u64::from(*offset)))
-                        .and_then(|offset| u32::try_from(offset).ok())
-                        .ok_or(Error::ValueTooLarge)?;
+                    // The CIE conversion already checked that the factor fits in a u8,
+                    // so this can't overflow a u64.
+                    let offset64 =
+                        u64::from(*offset) + u64::from(delta) * from_cie.code_alignment_factor();
+                    *offset = u32::try_from(offset64).map_err(|_| Error::ValueTooLarge)?;
                     return Ok(None);
                 }
                 read::CallFrameInstruction::DefCfa { register, offset } => {
