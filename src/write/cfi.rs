@@ -665,8 +665,8 @@ pub(crate) mod convert {
         {
             let mut cie = CommonInformationEntry::new(
                 from_cie.encoding(),
-                from_cie.code_alignment_factor() as u8,
-                from_cie.data_alignment_factor() as i8,
+                u8::try_from(from_cie.code_alignment_factor()).map_err(|_| Error::ValueTooLarge)?,
+                i8::try_from(from_cie.data_alignment_factor()).map_err(|_| Error::ValueTooLarge)?,
                 from_cie.return_address_register(),
             );
 
@@ -717,7 +717,7 @@ pub(crate) mod convert {
         {
             let address =
                 convert_address(from_fde.initial_address()).ok_or(ConvertError::InvalidAddress)?;
-            let length = from_fde.len() as u32;
+            let length = u32::try_from(from_fde.len()).map_err(|_| Error::ValueTooLarge)?;
             let mut fde = FrameDescriptionEntry::new(address, length);
 
             match from_fde.lsda() {
@@ -770,35 +770,48 @@ pub(crate) mod convert {
                     &NoConvertDebugInfoRef,
                 )
             };
-            // TODO: validate integer type conversions
+            let data_offset = |factored_offset: i64| {
+                factored_offset
+                    .checked_mul(from_cie.data_alignment_factor())
+                    .and_then(|offset| i32::try_from(offset).ok())
+                    .ok_or(Error::ValueTooLarge)
+            };
+            let unsigned_data_offset = |factored_offset: u64| {
+                data_offset(i64::try_from(factored_offset).map_err(|_| Error::ValueTooLarge)?)
+            };
             Ok(Some(match from_instruction {
                 read::CallFrameInstruction::SetLoc { .. } => {
                     return Err(ConvertError::UnsupportedCfiInstruction);
                 }
                 read::CallFrameInstruction::AdvanceLoc { delta } => {
-                    *offset += delta * from_cie.code_alignment_factor() as u32;
+                    *offset = u64::from(delta)
+                        .checked_mul(from_cie.code_alignment_factor())
+                        .and_then(|delta| delta.checked_add(u64::from(*offset)))
+                        .and_then(|offset| u32::try_from(offset).ok())
+                        .ok_or(Error::ValueTooLarge)?;
                     return Ok(None);
                 }
                 read::CallFrameInstruction::DefCfa { register, offset } => {
-                    CallFrameInstruction::Cfa(register, offset as i32)
+                    CallFrameInstruction::Cfa(
+                        register,
+                        i32::try_from(offset).map_err(|_| Error::ValueTooLarge)?,
+                    )
                 }
                 read::CallFrameInstruction::DefCfaSf {
                     register,
                     factored_offset,
-                } => {
-                    let offset = factored_offset * from_cie.data_alignment_factor();
-                    CallFrameInstruction::Cfa(register, offset as i32)
-                }
+                } => CallFrameInstruction::Cfa(register, data_offset(factored_offset)?),
                 read::CallFrameInstruction::DefCfaRegister { register } => {
                     CallFrameInstruction::CfaRegister(register)
                 }
 
                 read::CallFrameInstruction::DefCfaOffset { offset } => {
-                    CallFrameInstruction::CfaOffset(offset as i32)
+                    CallFrameInstruction::CfaOffset(
+                        i32::try_from(offset).map_err(|_| Error::ValueTooLarge)?,
+                    )
                 }
                 read::CallFrameInstruction::DefCfaOffsetSf { factored_offset } => {
-                    let offset = factored_offset * from_cie.data_alignment_factor();
-                    CallFrameInstruction::CfaOffset(offset as i32)
+                    CallFrameInstruction::CfaOffset(data_offset(factored_offset)?)
                 }
                 read::CallFrameInstruction::DefCfaExpression { expression } => {
                     let expression = expression.get(frame)?;
@@ -813,31 +826,22 @@ pub(crate) mod convert {
                 read::CallFrameInstruction::Offset {
                     register,
                     factored_offset,
-                } => {
-                    let offset = factored_offset as i64 * from_cie.data_alignment_factor();
-                    CallFrameInstruction::Offset(register, offset as i32)
-                }
+                } => CallFrameInstruction::Offset(register, unsigned_data_offset(factored_offset)?),
                 read::CallFrameInstruction::OffsetExtendedSf {
                     register,
                     factored_offset,
-                } => {
-                    let offset = factored_offset * from_cie.data_alignment_factor();
-                    CallFrameInstruction::Offset(register, offset as i32)
-                }
+                } => CallFrameInstruction::Offset(register, data_offset(factored_offset)?),
                 read::CallFrameInstruction::ValOffset {
                     register,
                     factored_offset,
-                } => {
-                    let offset = factored_offset as i64 * from_cie.data_alignment_factor();
-                    CallFrameInstruction::ValOffset(register, offset as i32)
-                }
+                } => CallFrameInstruction::ValOffset(
+                    register,
+                    unsigned_data_offset(factored_offset)?,
+                ),
                 read::CallFrameInstruction::ValOffsetSf {
                     register,
                     factored_offset,
-                } => {
-                    let offset = factored_offset * from_cie.data_alignment_factor();
-                    CallFrameInstruction::ValOffset(register, offset as i32)
-                }
+                } => CallFrameInstruction::ValOffset(register, data_offset(factored_offset)?),
                 read::CallFrameInstruction::Register {
                     dest_register,
                     src_register,
@@ -861,9 +865,9 @@ pub(crate) mod convert {
                 }
                 read::CallFrameInstruction::RememberState => CallFrameInstruction::RememberState,
                 read::CallFrameInstruction::RestoreState => CallFrameInstruction::RestoreState,
-                read::CallFrameInstruction::ArgsSize { size } => {
-                    CallFrameInstruction::ArgsSize(size as u32)
-                }
+                read::CallFrameInstruction::ArgsSize { size } => CallFrameInstruction::ArgsSize(
+                    u32::try_from(size).map_err(|_| Error::ValueTooLarge)?,
+                ),
                 read::CallFrameInstruction::NegateRaState => CallFrameInstruction::NegateRaState,
                 read::CallFrameInstruction::Nop => return Ok(None),
             }))
@@ -877,7 +881,7 @@ mod tests {
     use super::*;
     use crate::arch::X86_64;
     use crate::read;
-    use crate::write::EndianVec;
+    use crate::write::{ConvertError, EndianVec};
     use crate::{LittleEndian, Vendor};
 
     #[test]
@@ -1074,5 +1078,58 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_convert_frame_table_value_too_large() {
+        fn debug_frame(caf: &[u8], address_range: u64, instructions: &[u8]) -> Vec<u8> {
+            let mut cie = vec![0xff, 0xff, 0xff, 0xff, 1, 0];
+            cie.extend_from_slice(caf);
+            // data_alignment_factor = -8, return_address_register = 16
+            cie.extend_from_slice(&[0x78, 16]);
+            let mut fde = vec![0, 0, 0, 0];
+            fde.extend_from_slice(&0x1000u64.to_le_bytes());
+            fde.extend_from_slice(&address_range.to_le_bytes());
+            fde.extend_from_slice(instructions);
+            let mut data = Vec::new();
+            for entry in [cie, fde] {
+                data.extend_from_slice(&(entry.len() as u32).to_le_bytes());
+                data.extend_from_slice(&entry);
+            }
+            data
+        }
+
+        let convert = |data: &[u8]| {
+            let mut read_debug_frame = read::DebugFrame::new(data, LittleEndian);
+            read_debug_frame.set_address_size(8);
+            FrameTable::from(&read_debug_frame, &|address| {
+                Some(Address::Constant(address))
+            })
+        };
+
+        // The round trip works for in range values.
+        let data = debug_frame(&[1], 0x10, &[0x41, 0x0e, 0x10]);
+        let frames = convert(&data).unwrap();
+        assert_eq!(
+            &frames.fdes[0].1.instructions,
+            &[(1, CallFrameInstruction::CfaOffset(16))]
+        );
+
+        let too_large = Some(ConvertError::Write(Error::ValueTooLarge));
+        // code_alignment_factor = 256
+        let data = debug_frame(&[0x80, 0x02], 0x10, &[0x41, 0x0e, 0x10]);
+        assert_eq!(convert(&data).err(), too_large);
+        // address_range = 0x1_0000_0000
+        let data = debug_frame(&[1], 0x1_0000_0000, &[]);
+        assert_eq!(convert(&data).err(), too_large);
+        // DW_CFA_def_cfa_offset 0x1_0000_0010
+        let data = debug_frame(&[1], 0x10, &[0x0e, 0x90, 0x80, 0x80, 0x80, 0x10]);
+        assert_eq!(convert(&data).err(), too_large);
+        // DW_CFA_offset r1, 0x2000_0000 (factored by -8)
+        let data = debug_frame(&[1], 0x10, &[0x81, 0x80, 0x80, 0x80, 0x80, 0x02]);
+        assert_eq!(convert(&data).err(), too_large);
+        // DW_CFA_advance_loc4 0xffff_ffff, DW_CFA_advance_loc 1
+        let data = debug_frame(&[1], 0x10, &[0x04, 0xff, 0xff, 0xff, 0xff, 0x41]);
+        assert_eq!(convert(&data).err(), too_large);
     }
 }
