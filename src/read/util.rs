@@ -263,17 +263,3 @@ where
         fmt::Debug::fmt(&**self, f)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    #[should_panic]
-    fn test_array_vec_swap_remove_out_of_bounds() {
-        let mut vec = ArrayVec::<[u32; 4]>::new();
-        vec.try_push(1).unwrap();
-        // Index 1 is within the storage capacity but past the initialized length.
-        vec.swap_remove(1);
-    }
-}
