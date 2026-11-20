@@ -332,7 +332,22 @@ pub struct MacroIter<R: Reader> {
 
 impl<R: Reader> MacroIter<R> {
     /// Advance the iterator to the next entry in the `.debug_macro` section.
+    ///
+    /// Returns `Ok(None)` when iteration is complete. If an error occurs while
+    /// parsing the next entry, then this error is returned as `Err(e)`, and all
+    /// subsequent calls return `Ok(None)`.
     pub fn next(&mut self) -> Result<Option<MacroEntry<R>>> {
+        if self.input.is_empty() {
+            return Ok(None);
+        }
+        let result = self.parse_entry();
+        if result.is_err() {
+            self.input.empty();
+        }
+        result
+    }
+
+    fn parse_entry(&mut self) -> Result<Option<MacroEntry<R>>> {
         // DW_MACINFO_* and DW_MACRO_* have the same values, so we can use the same parsing logic.
         let macro_type = DwMacro(self.input.read_u8()?);
         match macro_type {
@@ -422,14 +437,12 @@ impl<R: Reader> MacroIter<R> {
             }
             _ => {
                 if self.is_macro {
-                    self.input.empty();
                     Err(Error::InvalidMacroType(macro_type))
                 } else if macro_type.0 == constants::DW_MACINFO_vendor_ext.0 {
                     let numeric = self.input.read_uleb128()?;
                     let string = self.input.read_null_terminated_slice()?;
                     Ok(Some(MacroEntry::VendorExt { numeric, string }))
                 } else {
-                    self.input.empty();
                     Err(Error::InvalidMacinfoType(DwMacinfo(macro_type.0)))
                 }
             }
