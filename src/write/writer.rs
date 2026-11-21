@@ -42,7 +42,12 @@ pub trait Writer {
 
     /// Write an address with a `.eh_frame` pointer encoding.
     ///
-    /// The given size is only used for `DW_EH_PE_absptr` formats.
+    /// The given size is the address size. It is used for `DW_EH_PE_absptr` formats,
+    /// and as the width at which encoded values wrap.
+    ///
+    /// The address must fit in the address size. The encoded value is computed modulo
+    /// the address size, then sign extended for signed formats. The value must then fit
+    /// in the format.
     ///
     /// If the writer supports relocations, then it must provide its own implementation
     /// of this method.
@@ -54,17 +59,34 @@ pub trait Writer {
     ) -> Result<()> {
         match address {
             Address::Constant(val) => {
+                if size == 0 || size > 8 {
+                    return Err(Error::UnsupportedWordSize(size));
+                }
+                let shift = 64 - size * 8;
+                let mask = !0u64 >> shift;
+                if val & !mask != 0 {
+                    return Err(Error::ValueTooLarge);
+                }
                 // Indirect doesn't matter here.
                 let val = match eh_pe.application() {
                     constants::DW_EH_PE_absptr => val,
                     constants::DW_EH_PE_pcrel => {
-                        // TODO: better handling of sign
                         let offset = self.len() as u64;
-                        val.wrapping_sub(offset)
+                        val.wrapping_sub(offset) & mask
                     }
                     _ => {
                         return Err(Error::UnsupportedPointerEncoding(eh_pe));
                     }
+                };
+                let val = match eh_pe.format() {
+                    constants::DW_EH_PE_sleb128
+                    | constants::DW_EH_PE_sdata2
+                    | constants::DW_EH_PE_sdata4
+                    | constants::DW_EH_PE_sdata8 => {
+                        // write_eh_pointer_data casts val to i64 so we must sign extend here.
+                        (((val << shift) as i64) >> shift) as u64
+                    }
+                    _ => val,
                 };
                 self.write_eh_pointer_data(val, eh_pe.format(), size)
             }
@@ -527,5 +549,59 @@ mod tests {
                 0xff, 0xff, 0xff, 0xff, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11
             ]
         );
+    }
+
+    #[test]
+    fn test_write_eh_pointer() {
+        use constants::*;
+
+        // (address size, application, format, address, expected bytes)
+        #[rustfmt::skip]
+        #[allow(clippy::type_complexity)]
+        let tests: &[(u8, DwEhPe, DwEhPe, u64, Result<&[u8]>)] = &[
+            // Absolute values with a format the same width as the address.
+            (4, DW_EH_PE_absptr, DW_EH_PE_udata4, 0x8000_0000, Ok(&[0, 0, 0, 0x80])),
+            (4, DW_EH_PE_absptr, DW_EH_PE_sdata4, 0x8000_0000, Ok(&[0, 0, 0, 0x80])),
+            (4, DW_EH_PE_absptr, DW_EH_PE_uleb128, 0xffff_ffff, Ok(&[0xff, 0xff, 0xff, 0xff, 0x0f])),
+            (4, DW_EH_PE_absptr, DW_EH_PE_sleb128, 0xffff_ffff, Ok(&[0x7f])),
+            // Absolute values with a format narrower than the address.
+            (4, DW_EH_PE_absptr, DW_EH_PE_sdata2, 0xffff_8000, Ok(&[0, 0x80])),
+            (4, DW_EH_PE_absptr, DW_EH_PE_udata2, 0xffff_8000, Err(Error::ValueTooLarge)),
+            (4, DW_EH_PE_absptr, DW_EH_PE_udata2, 0x8000, Ok(&[0, 0x80])),
+            (4, DW_EH_PE_absptr, DW_EH_PE_sdata2, 0x8000, Err(Error::ValueTooLarge)),
+            (8, DW_EH_PE_absptr, DW_EH_PE_sdata4, 0xffff_ffff_8000_0000, Ok(&[0, 0, 0, 0x80])),
+            (8, DW_EH_PE_absptr, DW_EH_PE_udata4, 0xffff_ffff_8000_0000, Err(Error::ValueTooLarge)),
+            (8, DW_EH_PE_absptr, DW_EH_PE_udata4, 0x8000_0000, Ok(&[0, 0, 0, 0x80])),
+            (8, DW_EH_PE_absptr, DW_EH_PE_sdata4, 0x8000_0000, Err(Error::ValueTooLarge)),
+            // Relative values wrap at the address size. The pointer is at offset 0x30.
+            (4, DW_EH_PE_pcrel, DW_EH_PE_absptr, 0x10, Ok(&[0xe0, 0xff, 0xff, 0xff])),
+            (4, DW_EH_PE_pcrel, DW_EH_PE_udata4, 0x10, Ok(&[0xe0, 0xff, 0xff, 0xff])),
+            (4, DW_EH_PE_pcrel, DW_EH_PE_sdata4, 0x10, Ok(&[0xe0, 0xff, 0xff, 0xff])),
+            (4, DW_EH_PE_pcrel, DW_EH_PE_udata2, 0x10, Err(Error::ValueTooLarge)),
+            (4, DW_EH_PE_pcrel, DW_EH_PE_sdata2, 0x10, Ok(&[0xe0, 0xff])),
+            (4, DW_EH_PE_pcrel, DW_EH_PE_uleb128, 0x10, Ok(&[0xe0, 0xff, 0xff, 0xff, 0x0f])),
+            (4, DW_EH_PE_pcrel, DW_EH_PE_sleb128, 0x10, Ok(&[0x60])),
+            (4, DW_EH_PE_pcrel, DW_EH_PE_sdata4, 0xffff_fff0, Ok(&[0xc0, 0xff, 0xff, 0xff])),
+            (2, DW_EH_PE_pcrel, DW_EH_PE_sdata2, 0x10, Ok(&[0xe0, 0xff])),
+            (8, DW_EH_PE_pcrel, DW_EH_PE_sdata4, 0x10, Ok(&[0xe0, 0xff, 0xff, 0xff])),
+            (8, DW_EH_PE_pcrel, DW_EH_PE_udata4, 0x10, Err(Error::ValueTooLarge)),
+            // Addresses too large for the address size.
+            (4, DW_EH_PE_absptr, DW_EH_PE_udata4, 0x1_0000_0000, Err(Error::ValueTooLarge)),
+            (4, DW_EH_PE_pcrel, DW_EH_PE_sdata4, 0x1_0000_0000, Err(Error::ValueTooLarge)),
+            // Unsupported address sizes.
+            (0, DW_EH_PE_absptr, DW_EH_PE_sdata4, 0, Err(Error::UnsupportedWordSize(0))),
+            (9, DW_EH_PE_absptr, DW_EH_PE_sdata4, 0, Err(Error::UnsupportedWordSize(9))),
+        ];
+        for &(size, application, format, address, ref expected) in tests {
+            let mut w = write::EndianVec::new(LittleEndian);
+            w.write(&[0; 0x30]).unwrap();
+            let result = w
+                .write_eh_pointer(Address::Constant(address), application | format, size)
+                .map(|()| &w.slice()[0x30..]);
+            assert_eq!(
+                result, *expected,
+                "{size}, {application}, {format}, {address:#x}"
+            );
+        }
     }
 }
