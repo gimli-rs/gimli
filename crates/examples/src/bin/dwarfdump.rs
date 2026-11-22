@@ -1567,13 +1567,13 @@ fn dump_file_index<R: Reader, W: Write>(
     file_index: u64,
     unit: gimli::UnitRef<R>,
 ) -> Result<()> {
-    if file_index == 0 && unit.header.version() <= 4 {
-        return Ok(());
-    }
     let header = match unit.line_program {
         Some(ref program) => program.header(),
         None => return Ok(()),
     };
+    if file_index == 0 && header.version() <= 4 {
+        return Ok(());
+    }
     let file = match header.file(file_index) {
         Some(file) => file,
         None => {
