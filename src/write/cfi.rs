@@ -180,8 +180,9 @@ impl CommonInformationEntry {
         }
 
         if eh_frame {
-            if encoding.version != 1 {
-                return Err(Error::UnsupportedVersion(encoding.version));
+            match encoding.version {
+                1 | 3 => {}
+                _ => return Err(Error::UnsupportedVersion(encoding.version)),
             };
         } else {
             match encoding.version {
@@ -217,11 +218,9 @@ impl CommonInformationEntry {
         w.write_uleb128(self.code_alignment_factor.into())?;
         w.write_sleb128(self.data_alignment_factor.into())?;
 
-        if !eh_frame && encoding.version == 1 {
-            let register = self.return_address_register.0 as u8;
-            if u16::from(register) != self.return_address_register.0 {
-                return Err(Error::ValueTooLarge);
-            }
+        if encoding.version == 1 {
+            let register =
+                u8::try_from(self.return_address_register.0).map_err(|_| Error::ValueTooLarge)?;
             w.write_u8(register)?;
         } else {
             w.write_uleb128(self.return_address_register.0.into())?;
@@ -954,6 +953,16 @@ mod tests {
                     fde6.lsda = Some(Address::Constant(0u64.wrapping_sub(0x2000) & mask));
                     frames.add_fde(cie3_id, fde6.clone());
 
+                    // Return address register that needs more than one byte as a ULEB128.
+                    let mut cie4 = CommonInformationEntry::new(encoding, 1, 8, Register(200));
+                    cie4.add_instruction(CallFrameInstruction::Cfa(X86_64::RSP, 8));
+                    cie4.add_instruction(CallFrameInstruction::Offset(Register(200), -8));
+                    let cie4_id = frames.add_cie(cie4.clone());
+                    assert_ne!(cie3_id, cie4_id);
+
+                    let fde7 = FrameDescriptionEntry::new(Address::Constant(0x6000), 0x60);
+                    frames.add_fde(cie4_id, fde7.clone());
+
                     // Test writing `.debug_frame`.
                     let mut debug_frame = DebugFrame::from(EndianVec::new(LittleEndian));
                     frames.write_debug_frame(&mut debug_frame).unwrap();
@@ -971,7 +980,7 @@ mod tests {
                         assert_eq!(a.1, b.1);
                     }
 
-                    if version == 1 {
+                    if version != 4 {
                         // Test writing `.eh_frame`.
                         let mut eh_frame = EhFrame::from(EndianVec::new(LittleEndian));
                         frames.write_eh_frame(&mut eh_frame).unwrap();
