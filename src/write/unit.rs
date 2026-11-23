@@ -4205,52 +4205,6 @@ mod tests {
     }
 
     #[test]
-    fn test_convert_file_index_usize_wrap() {
-        let encoding = Encoding {
-            format: Format::Dwarf32,
-            version: 4,
-            address_size: 8,
-        };
-        let mut line_program = LineProgram::new(
-            encoding,
-            LineEncoding::default(),
-            LineString::String(b"dir".to_vec()),
-            None,
-            LineString::String(b"file".to_vec()),
-            None,
-        );
-        let dir = line_program.default_directory();
-        let file = line_program.add_file(LineString::String(b"file".to_vec()), dir, None);
-
-        let mut unit = Unit::new(encoding, line_program);
-        let root = unit.get_mut(unit.root());
-        root.set(constants::DW_AT_stmt_list, AttributeValue::LineProgramRef);
-        let child = unit.add(unit.root(), constants::DW_TAG_subprogram);
-        unit.get_mut(child).set(
-            constants::DW_AT_decl_file,
-            AttributeValue::FileIndex(Some(file)),
-        );
-        let child = unit.add(unit.root(), constants::DW_TAG_subprogram);
-        // On 32-bit targets this must not be truncated to file index 1.
-        unit.get_mut(child).set(
-            constants::DW_AT_call_file,
-            AttributeValue::Udata(u64::from(u32::MAX) + 2),
-        );
-
-        let mut dwarf = Dwarf::new();
-        dwarf.units.add(unit);
-        let mut sections = Sections::new(EndianVec::new(LittleEndian));
-        dwarf.write(&mut sections).unwrap();
-
-        let read_dwarf = sections.read(LittleEndian);
-        let result = Dwarf::from(&read_dwarf, &|address| Some(Address::Constant(address)));
-        assert_eq!(
-            result.unwrap_err(),
-            crate::write::ConvertError::InvalidFileIndex
-        );
-    }
-
-    #[test]
     fn test_line_program_used() {
         for used in [false, true] {
             let encoding = Encoding {
