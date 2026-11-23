@@ -945,6 +945,15 @@ mod tests {
                     fde5.lsda = Some(Address::Constant(0x5500));
                     frames.add_fde(cie3_id, fde5.clone());
 
+                    // Addresses before the section start give negative pcrel offsets.
+                    let mask = !0 >> (64 - address_size * 8);
+                    let mut fde6 = FrameDescriptionEntry::new(
+                        Address::Constant(0u64.wrapping_sub(0x1000) & mask),
+                        0x60,
+                    );
+                    fde6.lsda = Some(Address::Constant(0u64.wrapping_sub(0x2000) & mask));
+                    frames.add_fde(cie3_id, fde6.clone());
+
                     // Test writing `.debug_frame`.
                     let mut debug_frame = DebugFrame::from(EndianVec::new(LittleEndian));
                     frames.write_debug_frame(&mut debug_frame).unwrap();
