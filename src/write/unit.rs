@@ -2947,7 +2947,8 @@ pub(crate) mod convert {
             if index == 0 && read_unit.encoding().version <= 4 {
                 return Ok(None);
             }
-            match self.line_program_files.get(index as usize) {
+            let index = usize::try_from(index).map_err(|_| ConvertError::InvalidFileIndex)?;
+            match self.line_program_files.get(index) {
                 Some(id) => Ok(Some(*id)),
                 None => Err(ConvertError::InvalidFileIndex),
             }
