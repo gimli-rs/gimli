@@ -575,7 +575,9 @@ fn factored_code_delta(prev_offset: u32, offset: u32, factor: u8) -> Result<u32>
     }
     let delta = offset - prev_offset;
     let factor = u32::from(factor);
-    let factored_delta = delta / factor;
+    let factored_delta = delta
+        .checked_div(factor)
+        .ok_or(Error::InvalidFrameCodeOffset(offset))?;
     if delta != factored_delta * factor {
         return Err(Error::InvalidFrameCodeOffset(offset));
     }
@@ -584,7 +586,9 @@ fn factored_code_delta(prev_offset: u32, offset: u32, factor: u8) -> Result<u32>
 
 fn factored_data_offset(offset: i32, factor: i8) -> Result<i32> {
     let factor = i32::from(factor);
-    let factored_offset = offset / factor;
+    let factored_offset = offset
+        .checked_div(factor)
+        .ok_or(Error::InvalidFrameDataOffset(offset))?;
     if offset != factored_offset * factor {
         return Err(Error::InvalidFrameDataOffset(offset));
     }
@@ -1131,5 +1135,41 @@ mod tests {
         // DW_CFA_advance_loc4 0xffff_ffff, DW_CFA_advance_loc 1
         let data = debug_frame(&[1], 0x10, &[0x04, 0xff, 0xff, 0xff, 0xff, 0x41]);
         assert_eq!(convert(&data).err(), too_large);
+    }
+
+    #[test]
+    fn test_frame_invalid_factors() {
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 1,
+            address_size: 8,
+        };
+        let write = |cie: CommonInformationEntry, instruction| {
+            let mut frames = FrameTable::default();
+            let cie_id = frames.add_cie(cie);
+            let mut fde = FrameDescriptionEntry::new(Address::Constant(0x1000), 0x10);
+            fde.add_instruction(4, instruction);
+            frames.add_fde(cie_id, fde);
+            let mut debug_frame = DebugFrame::from(EndianVec::new(LittleEndian));
+            frames.write_debug_frame(&mut debug_frame)
+        };
+
+        let cie = CommonInformationEntry::new(encoding, 0, 8, X86_64::RA);
+        assert_eq!(
+            write(cie, CallFrameInstruction::CfaOffset(8)),
+            Err(Error::InvalidFrameCodeOffset(4))
+        );
+
+        let cie = CommonInformationEntry::new(encoding, 1, 0, X86_64::RA);
+        assert_eq!(
+            write(cie, CallFrameInstruction::Offset(X86_64::RA, 0)),
+            Err(Error::InvalidFrameDataOffset(0))
+        );
+
+        let cie = CommonInformationEntry::new(encoding, 1, -1, X86_64::RA);
+        assert_eq!(
+            write(cie, CallFrameInstruction::CfaOffset(i32::MIN)),
+            Err(Error::InvalidFrameDataOffset(i32::MIN))
+        );
     }
 }
