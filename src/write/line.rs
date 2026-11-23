@@ -533,13 +533,8 @@ impl LineProgram {
     ) -> Result<DebugLineOffset> {
         assert!(!self.is_none());
 
-        // `.debug_line` and `.debug_info` may use different versions, but version 5
-        // allows a file index of 0, which is not allowed in earlier versions.
-        //
-        // Also check that address size matches since there is no reason for it to differ.
-        if encoding.version < 5 && self.version() >= 5
-            || encoding.address_size != self.address_size()
-        {
+        // Check that address size matches since there is no reason for it to differ.
+        if encoding.address_size != self.address_size() {
             return Err(Error::IncompatibleLineProgramEncoding);
         }
 
@@ -706,6 +701,19 @@ impl LineProgram {
         w.write_initial_length_at(length_offset, length, self.format())?;
 
         Ok(offset)
+    }
+
+    pub(crate) fn file_index(&self, id: Option<FileId>) -> Result<u64> {
+        match id {
+            Some(id) => {
+                if self.is_none() {
+                    Err(Error::InvalidAttributeValue)
+                } else {
+                    Ok(id.raw(self.version()))
+                }
+            }
+            None => Ok(0),
+        }
     }
 }
 
@@ -994,6 +1002,8 @@ mod id {
         /// Convert to a raw value used for writing.
         ///
         /// This converts to a 1-based index for DWARF version <= 4.
+        ///
+        /// `version` must be for the line program, not the unit.
         pub(crate) fn raw(self, version: u16) -> u64 {
             if version <= 4 {
                 self.0 as u64 + 1

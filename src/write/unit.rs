@@ -1263,7 +1263,7 @@ impl AttributeValue {
             }
             AttributeValue::FileIndex(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
-                uleb128_size(val.map(|id| id.raw(unit.version())).unwrap_or(0))
+                uleb128_size(unit.line_program.file_index(val)?)
             }
         })
     }
@@ -1522,7 +1522,7 @@ impl AttributeValue {
             }
             AttributeValue::FileIndex(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
-                w.write_uleb128(val.map(|id| id.raw(unit.version())).unwrap_or(0))?;
+                w.write_uleb128(unit.line_program.file_index(val)?)?;
             }
         }
         Ok(())
@@ -2233,6 +2233,7 @@ pub(crate) mod convert {
                 entry_ids: &self.entry_ids,
                 line_strings: &mut self.dwarf.line_strings,
                 strings: &mut self.dwarf.strings,
+                read_line_program_version: None,
                 line_program_files: Vec::new(),
                 read_entries: read_unit.entries_raw(None)?,
                 parents: Vec::new(),
@@ -2349,6 +2350,7 @@ pub(crate) mod convert {
                 entry_ids: &self.entry_ids,
                 line_strings: self.line_strings,
                 strings: self.strings,
+                read_line_program_version: None,
                 line_program_files: Vec::new(),
                 read_entries: read_unit.entries_raw(None)?,
                 parents: Vec::new(),
@@ -2457,6 +2459,7 @@ pub(crate) mod convert {
         pub line_strings: &'a mut write::LineStringTable,
         /// The table containing converted strings.
         pub strings: &'a mut write::StringTable,
+        read_line_program_version: Option<u16>,
         line_program_files: Vec<FileId>,
         entry_ids: &'a FnvHashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
         read_entries: read::EntriesRaw<'a, R>,
@@ -2562,6 +2565,7 @@ pub(crate) mod convert {
             let Some(read_program) = &read_unit.line_program else {
                 return Ok(None);
             };
+            self.read_line_program_version = Some(read_program.header().encoding().version);
             ConvertLineProgram::new(
                 read_unit.dwarf,
                 read_program.clone(),
@@ -2941,10 +2945,10 @@ pub(crate) mod convert {
         /// file index attributes.
         pub fn convert_file_index(
             &self,
-            read_unit: read::UnitRef<'_, R>,
+            _read_unit: read::UnitRef<'_, R>,
             index: u64,
         ) -> ConvertResult<Option<FileId>> {
-            if index == 0 && read_unit.encoding().version <= 4 {
+            if index == 0 && self.read_line_program_version.unwrap_or(0) <= 4 {
                 return Ok(None);
             }
             let index = usize::try_from(index).map_err(|_| ConvertError::InvalidFileIndex)?;
@@ -4092,13 +4096,18 @@ mod tests {
         let file_string1 = LineString::String(file_bytes1.to_vec());
         let file_string2 = LineString::String(file_bytes2.to_vec());
 
-        for &version in &[2, 3, 4, 5] {
+        let versions = (2..=5).flat_map(|unit| (2..=5).map(move |line| (unit, line)));
+        for (unit_version, version) in versions {
             for &address_size in &[4, 8] {
                 for &format in &[Format::Dwarf32, Format::Dwarf64] {
                     let encoding = Encoding {
                         format,
                         version,
                         address_size,
+                    };
+                    let unit_encoding = Encoding {
+                        version: unit_version,
+                        ..encoding
                     };
 
                     // The line program we'll be referencing.
@@ -4115,7 +4124,7 @@ mod tests {
                     let file1 = line_program.add_file(file_string1.clone(), dir, None);
                     let file2 = line_program.add_file(file_string2.clone(), dir, None);
 
-                    let mut unit = Unit::new(encoding, line_program);
+                    let mut unit = Unit::new(unit_encoding, line_program);
                     let root = unit.get_mut(unit.root());
                     root.set(
                         constants::DW_AT_name,
@@ -4199,6 +4208,15 @@ mod tests {
 
                     let convert_path = get_convert_path(constants::DW_AT_call_file);
                     assert_eq!(convert_dwarf.get_line_string(convert_path), file_bytes2);
+
+                    // Writing the converted DWARF again gives the same file indices.
+                    let mut convert_dwarf = convert_dwarf;
+                    let mut convert_sections = Sections::new(EndianVec::new(LittleEndian));
+                    convert_dwarf.write(&mut convert_sections).unwrap();
+                    assert_eq!(
+                        convert_sections.debug_info.slice(),
+                        sections.debug_info.slice()
+                    );
                 }
             }
         }
