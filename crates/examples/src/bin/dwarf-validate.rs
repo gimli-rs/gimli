@@ -56,7 +56,7 @@ fn main() {
         let file = match unsafe { memmap2::Mmap::map(&file) } {
             Ok(mmap) => mmap,
             Err(err) => {
-                eprintln!("Failed to map file '{}': {}", path.display(), &err);
+                eprintln!("Failed to map file '{}': {}", path.display(), err);
                 errors += 1;
                 continue;
             }
@@ -172,7 +172,7 @@ fn validate_info<W, R>(
             Err(err) => {
                 w.error(format!(
                     "Invalid abbrevs for unit {:#x}: {}",
-                    unit_offset.0, &err
+                    unit_offset.0, err
                 ));
                 return ret;
             }
@@ -185,7 +185,7 @@ fn validate_info<W, R>(
                 Err(err) => {
                     w.error(format!(
                         "Invalid DIE for unit {:#x} at DIE {:#x}: {}",
-                        unit_offset.0, entry_offset.0, &err
+                        unit_offset.0, entry_offset.0, err
                     ));
                     return ret;
                 }
@@ -199,7 +199,7 @@ fn validate_info<W, R>(
                     Err(err) => {
                         w.error(format!(
                             "Invalid attribute for unit {:#x} at DIE {:#x}: {}",
-                            unit_offset.0, entry_offset.0, &err
+                            unit_offset.0, entry_offset.0, err
                         ));
                         return ret;
                     }
