@@ -560,7 +560,7 @@ impl<R: Reader> LineInstructions<R> {
 pub struct LineRow {
     tombstone: bool,
     address: u64,
-    op_index: Wrapping<u64>,
+    op_index: u64,
     file: u64,
     line: Wrapping<u64>,
     column: u64,
@@ -581,7 +581,7 @@ impl LineRow {
             // state of the registers is:" -- Section 6.2.2
             tombstone: false,
             address: 0,
-            op_index: Wrapping(0),
+            op_index: 0,
             file: 1,
             line: Wrapping(1),
             column: 0,
@@ -616,7 +616,7 @@ impl LineRow {
     /// > instruction stream.
     #[inline]
     pub fn op_index(&self) -> u64 {
-        self.op_index.0
+        self.op_index
     }
 
     /// "An unsigned integer indicating the identity of the source file
@@ -782,7 +782,7 @@ impl LineRow {
                 if !self.tombstone {
                     let address_size = program.header().address_size();
                     self.address = self.address.add_sized(u64::from(operand), address_size)?;
-                    self.op_index.0 = 0;
+                    self.op_index = 0;
                 }
                 false
             }
@@ -819,7 +819,7 @@ impl LineRow {
                     || address >= u64::min_tombstone(program.header().encoding.address_size);
                 if !self.tombstone {
                     self.address = address;
-                    self.op_index.0 = 0;
+                    self.op_index = 0;
                 }
                 false
             }
@@ -885,27 +885,29 @@ impl LineRow {
             return Ok(());
         }
 
-        let operation_advance = Wrapping(operation_advance);
-
         let minimum_instruction_length = u64::from(header.line_encoding.minimum_instruction_length);
-        let minimum_instruction_length = Wrapping(minimum_instruction_length);
-
         let maximum_operations_per_instruction =
             u64::from(header.line_encoding.maximum_operations_per_instruction);
-        let maximum_operations_per_instruction = Wrapping(maximum_operations_per_instruction);
 
-        let address_advance = if maximum_operations_per_instruction.0 == 1 {
-            self.op_index.0 = 0;
-            minimum_instruction_length * operation_advance
+        let (instruction_advance, op_index) = if maximum_operations_per_instruction == 1 {
+            (operation_advance, 0)
         } else {
-            let op_index_with_advance = self.op_index + operation_advance;
-            self.op_index = op_index_with_advance % maximum_operations_per_instruction;
-            minimum_instruction_length
-                * (op_index_with_advance / maximum_operations_per_instruction)
+            let op_index_with_advance = self
+                .op_index
+                .checked_add(operation_advance)
+                .ok_or(Error::AddressOverflow)?;
+            (
+                op_index_with_advance / maximum_operations_per_instruction,
+                op_index_with_advance % maximum_operations_per_instruction,
+            )
         };
+        let address_advance = instruction_advance
+            .checked_mul(minimum_instruction_length)
+            .ok_or(Error::AddressOverflow)?;
         self.address = self
             .address
-            .add_sized(address_advance.0, header.address_size())?;
+            .add_sized(address_advance, header.address_size())?;
+        self.op_index = op_index;
         Ok(())
     }
 
@@ -2550,6 +2552,24 @@ mod tests {
     }
 
     #[test]
+    fn test_exec_advance_pc_op_index() {
+        let mut header = make_test_header(EndianSlice::new(&[], LittleEndian));
+        header.line_encoding.minimum_instruction_length = 4;
+        header.line_encoding.maximum_operations_per_instruction = 3;
+        let mut initial_registers = LineRow::new(&header);
+        initial_registers.address = 0x1000;
+        initial_registers.op_index = 2;
+        let opcode = LineInstruction::AdvancePc(8);
+
+        // op_index 2 + 8 = 10 operations = 3 instructions, op_index 1.
+        let mut expected_registers = initial_registers;
+        expected_registers.address += 3 * 4;
+        expected_registers.op_index = 1;
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
+    }
+
+    #[test]
     fn test_exec_advance_pc_overflow_32() {
         let mut header = make_test_header(EndianSlice::new(&[], LittleEndian));
         header.encoding.address_size = 4;
@@ -2568,6 +2588,33 @@ mod tests {
         let mut registers = LineRow::new(&header);
         registers.address = u64::MAX;
         let opcode = LineInstruction::AdvancePc(42);
+        let mut program = IncompleteLineProgram { header };
+        let result = registers.execute(opcode, &mut program);
+        assert_eq!(result, Err(Error::AddressOverflow));
+    }
+
+    #[test]
+    fn test_exec_advance_pc_overflow_op_index() {
+        // AdvancePc(u64::MAX) + op_index(2) overflows.
+        let mut header = make_test_header(EndianSlice::new(&[], LittleEndian));
+        header.line_encoding.maximum_operations_per_instruction = 3;
+        let mut registers = LineRow::new(&header);
+        registers.address = 0x1000;
+        registers.op_index = 2;
+        let opcode = LineInstruction::AdvancePc(u64::MAX);
+        let mut program = IncompleteLineProgram { header };
+        let result = registers.execute(opcode, &mut program);
+        assert_eq!(result, Err(Error::AddressOverflow));
+    }
+
+    #[test]
+    fn test_exec_advance_pc_overflow_minimum_instruction_length() {
+        // AdvancePc(1 << 62) * minimum_instruction_length(4) overflows.
+        let mut header = make_test_header(EndianSlice::new(&[], LittleEndian));
+        header.line_encoding.minimum_instruction_length = 4;
+        let mut registers = LineRow::new(&header);
+        registers.address = 0x1000;
+        let opcode = LineInstruction::AdvancePc(1 << 62);
         let mut program = IncompleteLineProgram { header };
         let result = registers.execute(opcode, &mut program);
         assert_eq!(result, Err(Error::AddressOverflow));
@@ -2742,13 +2789,13 @@ mod tests {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
 
         let mut initial_registers = LineRow::new(&header);
-        initial_registers.op_index.0 = 1;
+        initial_registers.op_index = 1;
 
         let opcode = LineInstruction::FixedAddPc(10);
 
         let mut expected_registers = initial_registers;
         expected_registers.address += 10;
-        expected_registers.op_index.0 = 0;
+        expected_registers.op_index = 0;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
     }
@@ -2758,7 +2805,7 @@ mod tests {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
         let mut registers = LineRow::new(&header);
         registers.address = u64::MAX;
-        registers.op_index.0 = 1;
+        registers.op_index = 1;
         let opcode = LineInstruction::FixedAddPc(10);
         let mut program = IncompleteLineProgram { header };
         let result = registers.execute(opcode, &mut program);
