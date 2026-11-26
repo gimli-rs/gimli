@@ -1109,6 +1109,9 @@ impl<R: Reader> EvaluationStorage<R> for StoreOnHeap {
     type Result = Vec<Piece<R>>;
 }
 
+/// Default limit on expression evaluation iterations.
+const DEFAULT_MAX_ITERATIONS: u32 = 4096;
+
 /// A DWARF expression evaluator.
 ///
 /// # Usage
@@ -1186,8 +1189,9 @@ pub struct Evaluation<R: Reader, S: EvaluationStorage<R> = StoreOnHeap> {
 impl<R: Reader> Evaluation<R> {
     /// Create a new DWARF expression evaluator.
     ///
-    /// The new evaluator is created without an initial value, without
-    /// an object address, and without a maximum number of iterations.
+    /// The new evaluator is created without an initial value and without
+    /// an object address. The maximum number of iterations is set to 4096;
+    /// use [`Evaluation::set_max_iterations`] to change it.
     pub fn new(bytecode: R, encoding: Encoding) -> Self {
         Self::new_in(bytecode, encoding)
     }
@@ -1209,15 +1213,16 @@ impl<R: Reader> Evaluation<R> {
 impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
     /// Create a new DWARF expression evaluator.
     ///
-    /// The new evaluator is created without an initial value, without
-    /// an object address, and without a maximum number of iterations.
+    /// The new evaluator is created without an initial value and without
+    /// an object address. The maximum number of iterations is set to 4096;
+    /// use [`Evaluation::set_max_iterations`] to change it.
     pub fn new_in(bytecode: R, encoding: Encoding) -> Self {
         let pc = bytecode.clone();
         Evaluation {
             bytecode,
             encoding,
             object_address: None,
-            max_iterations: None,
+            max_iterations: Some(DEFAULT_MAX_ITERATIONS),
             iteration: 0,
             state: EvaluationState::Start(None),
             addr_mask: if encoding.address_size == 8 {
@@ -1268,9 +1273,9 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
     /// An iteration corresponds approximately to the evaluation of a
     /// single operation in an expression ("approximately" because the
     /// implementation may allow two such operations in some cases).
-    /// The default is not to have a maximum; once set, it's not
-    /// possible to go back to this default state.  This value can be
-    /// set to avoid denial of service attacks by bad DWARF bytecode.
+    /// The default is 4096; this method can raise
+    /// or lower that limit. It should be set high enough for legitimate
+    /// expressions, since bad DWARF bytecode can otherwise loop forever.
     pub fn set_max_iterations(&mut self, value: u32) {
         self.max_iterations = Some(value);
     }
