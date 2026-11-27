@@ -553,6 +553,17 @@ impl<R: Reader> LineInstructions<R> {
     }
 }
 
+/// The location of the most recent non-tombstone row in the current sequence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PreviousRow {
+    /// There is no previous row in the current sequence.
+    None,
+    /// The previous row's address is before the address register.
+    Before,
+    /// The previous row's address is equal to the address register.
+    Current,
+}
+
 /// A row in the line number program's resulting matrix.
 ///
 /// Each row is a copy of the registers of the state machine, as defined in section 6.2.2.
@@ -571,6 +582,7 @@ pub struct LineRow {
     epilogue_begin: bool,
     isa: u64,
     discriminator: u64,
+    previous_row: PreviousRow,
 }
 
 impl LineRow {
@@ -597,6 +609,7 @@ impl LineRow {
             // the object file description."
             isa: 0,
             discriminator: 0,
+            previous_row: PreviousRow::None,
         }
     }
 
@@ -736,10 +749,14 @@ impl LineRow {
         Ok(match instruction {
             LineInstruction::Special(opcode) => {
                 self.exec_special_opcode(opcode, program.header())?;
+                self.exec_copy();
                 true
             }
 
-            LineInstruction::Copy => true,
+            LineInstruction::Copy => {
+                self.exec_copy();
+                true
+            }
 
             LineInstruction::AdvancePc(operation_advance) => {
                 self.apply_operation_advance(operation_advance, program.header())?;
@@ -781,8 +798,8 @@ impl LineRow {
             LineInstruction::FixedAddPc(operand) => {
                 if !self.tombstone {
                     let address_size = program.header().address_size();
-                    self.address = self.address.add_sized(u64::from(operand), address_size)?;
-                    self.op_index = 0;
+                    let address = self.address.add_sized(u64::from(operand), address_size)?;
+                    self.set_address(address, 0);
                 }
                 false
             }
@@ -803,7 +820,7 @@ impl LineRow {
             }
 
             LineInstruction::EndSequence => {
-                self.end_sequence = true;
+                self.exec_end_sequence(program.header())?;
                 true
             }
 
@@ -818,8 +835,7 @@ impl LineRow {
                 self.tombstone = address < self.address
                     || address >= u64::min_tombstone(program.header().encoding.address_size);
                 if !self.tombstone {
-                    self.address = address;
-                    self.op_index = 0;
+                    self.set_address(address, 0);
                 }
                 false
             }
@@ -895,10 +911,10 @@ impl LineRow {
         let address_advance = instruction_advance
             .checked_mul(minimum_instruction_length)
             .ok_or(Error::AddressOverflow)?;
-        self.address = self
+        let address = self
             .address
             .add_sized(address_advance, header.address_size())?;
-        self.op_index = op_index;
+        self.set_address(address, op_index);
         Ok(())
     }
 
@@ -925,6 +941,45 @@ impl LineRow {
 
         // Step 2
         self.apply_operation_advance(u64::from(operation_advance), header)?;
+        Ok(())
+    }
+
+    #[inline]
+    fn set_address(&mut self, address: u64, op_index: u64) {
+        if address != self.address && self.previous_row == PreviousRow::Current {
+            self.previous_row = PreviousRow::Before;
+        }
+        self.address = address;
+        self.op_index = op_index;
+    }
+
+    #[inline]
+    fn exec_copy(&mut self) {
+        if !self.tombstone {
+            self.previous_row = PreviousRow::Current;
+        }
+    }
+
+    fn exec_end_sequence<R: Reader>(&mut self, header: &LineProgramHeader<R>) -> Result<()> {
+        self.end_sequence = true;
+        if !self.tombstone {
+            return Ok(());
+        }
+        // Sequences that are nothing but tombstones remain tombstones.
+        if self.previous_row == PreviousRow::None {
+            return Ok(());
+        }
+        // Edge case: the end sequence was after a tombstone DW_LNE_set_address,
+        // but the sequence contains valid rows too. We need to generate the end
+        // of sequence row, but we can't know what address it should have.
+        // We can use the current registers if they are on a byte boundary after
+        // the last row, otherwise use the next instruction.
+        self.tombstone = false;
+        if self.op_index != 0 || self.previous_row == PreviousRow::Current {
+            let len = u64::from(header.line_encoding.minimum_instruction_length);
+            self.address = self.address.add_sized(len, header.address_size())?;
+            self.op_index = 0;
+        }
         Ok(())
     }
 }
@@ -1841,6 +1896,35 @@ mod tests {
     use crate::test_util::GimliSectionMethods;
     use test_assembler::{Endian, Label, LabelMaker, Section};
 
+    trait LineSectionMethods {
+        fn set_address(self, address: u64) -> Self;
+        fn end_sequence(self) -> Self;
+        fn copy(self) -> Self;
+        fn advance_pc(self, offset: u64) -> Self;
+        fn copy_and_advance_pc(self, offset: u64) -> Self;
+    }
+
+    impl LineSectionMethods for Section {
+        fn set_address(self, address: u64) -> Self {
+            self.D8(0)
+                .D8(9)
+                .D8(constants::DW_LNE_set_address.0)
+                .D64(address)
+        }
+        fn end_sequence(self) -> Self {
+            self.D8(0).D8(1).D8(constants::DW_LNE_end_sequence.0)
+        }
+        fn copy(self) -> Self {
+            self.D8(constants::DW_LNS_copy.0)
+        }
+        fn advance_pc(self, offset: u64) -> Self {
+            self.D8(constants::DW_LNS_advance_pc.0).uleb(offset)
+        }
+        fn copy_and_advance_pc(self, offset: u64) -> Self {
+            self.copy().advance_pc(offset)
+        }
+    }
+
     #[test]
     fn test_parse_debug_line_32_ok() {
         #[rustfmt::skip]
@@ -2402,13 +2486,14 @@ mod tests {
         header: LineProgramHeader<EndianSlice<'input, LittleEndian>>,
         mut registers: LineRow,
         opcode: LineInstruction<EndianSlice<'input, LittleEndian>>,
-        expected_registers: LineRow,
+        mut expected_registers: LineRow,
         expect_new_row: bool,
     ) {
         let mut program = IncompleteLineProgram { header };
         let is_new_row = registers.execute(opcode, &mut program);
 
         assert_eq!(is_new_row, Ok(expect_new_row));
+        expected_registers.previous_row = registers.previous_row;
         assert_eq!(registers, expected_registers);
     }
 
@@ -3213,5 +3298,120 @@ mod tests {
         assert_eq!(sequences[0].end, 4);
         assert_eq!(sequences[1].start, 11);
         assert_eq!(sequences[1].end, 14);
+    }
+
+    #[test]
+    fn test_tombstone_end_sequence() {
+        let section = Section::with_endian(Endian::Little);
+        let mut expected = Vec::new();
+
+        // Degenerate sequence with no rows. No tombstone, so the end of the sequence
+        // should still be returned.
+        let section = section.set_address(0x1000).advance_pc(4).end_sequence();
+        expected.push((0x1004, true));
+
+        // Copy, advance, tombstone, end sequence.
+        let section = section
+            .set_address(0x2000)
+            .copy_and_advance_pc(4)
+            .set_address(!0)
+            .copy_and_advance_pc(4)
+            .end_sequence();
+        expected.push((0x2000, false));
+        expected.push((0x2004, true));
+
+        // Tombstone, end sequence.
+        let section = section
+            .set_address(!0)
+            .copy_and_advance_pc(4)
+            .end_sequence();
+
+        // Copy, advance, tombstone, copy, advance, end sequence.
+        let section = section
+            .set_address(0x3000)
+            .copy_and_advance_pc(4)
+            .set_address(!0)
+            .copy_and_advance_pc(4)
+            .set_address(0x3010)
+            .copy_and_advance_pc(4)
+            .end_sequence();
+        expected.push((0x3000, false));
+        expected.push((0x3010, false));
+        expected.push((0x3014, true));
+
+        // Copy, tombstone, end sequence.
+        // End of sequence uses the next instruction.
+        let section = section
+            .set_address(0x4000)
+            .copy()
+            .set_address(!0)
+            .copy_and_advance_pc(4)
+            .end_sequence();
+        expected.push((0x4000, false));
+        expected.push((0x4001, true));
+
+        let buf = section.get_contents().unwrap();
+        let program = make_test_program(EndianSlice::new(&buf, LittleEndian));
+
+        let mut rows = program.clone().rows();
+        let mut result = Vec::new();
+        while let Some((_, row)) = rows.next_row().unwrap() {
+            result.push((row.address(), row.end_sequence()));
+        }
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_tombstone_end_sequence_vliw() {
+        let section = Section::with_endian(Endian::Little);
+        let mut expected = Vec::new();
+
+        // Copy, advance op, tombstone, end sequence.
+        // End of sequence uses the next instruction.
+        let section = section
+            .set_address(0x1000)
+            .copy_and_advance_pc(1)
+            .set_address(!0)
+            .copy_and_advance_pc(1)
+            .end_sequence();
+        expected.push((0x1000, 0, false));
+        expected.push((0x1004, 0, true));
+
+        // Copy, advance instruction and op, tombstone, end sequence.
+        // End of sequence uses the next instruction.
+        let section = section
+            .set_address(0x2000)
+            .copy_and_advance_pc(5)
+            .set_address(!0)
+            .copy_and_advance_pc(4)
+            .end_sequence();
+        expected.push((0x2000, 0, false));
+        expected.push((0x2008, 0, true));
+
+        // Copy, advance instruction, tombstone, end sequence.
+        // End of sequence uses current instruction.
+        let section = section
+            .set_address(0x3000)
+            .copy_and_advance_pc(4)
+            .set_address(!0)
+            .copy_and_advance_pc(4)
+            .end_sequence();
+        expected.push((0x3000, 0, false));
+        expected.push((0x3004, 0, true));
+
+        let buf = section.get_contents().unwrap();
+        let mut program = make_test_program(EndianSlice::new(&buf, LittleEndian));
+        program.header.line_encoding.minimum_instruction_length = 4;
+        program
+            .header
+            .line_encoding
+            .maximum_operations_per_instruction = 4;
+
+        let mut rows = program.clone().rows();
+        let mut result = Vec::new();
+        while let Some((_, row)) = rows.next_row().unwrap() {
+            result.push((row.address(), row.op_index(), row.end_sequence()));
+        }
+        assert_eq!(result, expected);
     }
 }
