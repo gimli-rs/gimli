@@ -1,5 +1,5 @@
 use alloc::vec::Vec;
-use core::num::{NonZeroU64, Wrapping};
+use core::num::NonZeroU64;
 
 use crate::common::{
     DebugLineOffset, DebugLineStrOffset, DebugStrOffset, DebugStrOffsetsIndex, Encoding, Format,
@@ -562,7 +562,7 @@ pub struct LineRow {
     address: u64,
     op_index: u64,
     file: u64,
-    line: Wrapping<u64>,
+    line: u64,
     column: u64,
     is_stmt: bool,
     basic_block: bool,
@@ -583,7 +583,7 @@ impl LineRow {
             address: 0,
             op_index: 0,
             file: 1,
-            line: Wrapping(1),
+            line: 1,
             column: 0,
             // "determined by default_is_stmt in the line number program header"
             is_stmt: header.line_encoding.default_is_stmt,
@@ -641,7 +641,7 @@ impl LineRow {
     /// Line number values of 0 are represented as `None`.
     #[inline]
     pub fn line(&self) -> Option<NonZeroU64> {
-        NonZeroU64::new(self.line.0)
+        NonZeroU64::new(self.line)
     }
 
     /// "An unsigned integer indicating a column number within a source
@@ -863,16 +863,7 @@ impl LineRow {
 
     /// Step 1 of section 6.2.5.1
     fn apply_line_advance(&mut self, line_increment: i64) {
-        if line_increment < 0 {
-            let decrement = -line_increment as u64;
-            if decrement <= self.line.0 {
-                self.line.0 -= decrement;
-            } else {
-                self.line.0 = 0;
-            }
-        } else {
-            self.line += Wrapping(line_increment as u64);
-        }
+        self.line = self.line.saturating_add_signed(line_increment);
     }
 
     /// Step 2 of section 6.2.5.1
@@ -2437,12 +2428,12 @@ mod tests {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
 
         let mut initial_registers = LineRow::new(&header);
-        initial_registers.line.0 = 10;
+        initial_registers.line = 10;
 
         let opcode = LineInstruction::Special(13);
 
         let mut expected_registers = initial_registers;
-        expected_registers.line.0 -= 3;
+        expected_registers.line -= 3;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, true);
     }
@@ -2456,7 +2447,7 @@ mod tests {
         let opcode = LineInstruction::Special(19);
 
         let mut expected_registers = initial_registers;
-        expected_registers.line.0 += 3;
+        expected_registers.line += 3;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, true);
     }
@@ -2485,7 +2476,7 @@ mod tests {
 
         let mut expected_registers = initial_registers;
         expected_registers.address += 3;
-        expected_registers.line.0 += 3;
+        expected_registers.line += 3;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, true);
     }
@@ -2495,13 +2486,13 @@ mod tests {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
 
         let mut initial_registers = LineRow::new(&header);
-        initial_registers.line.0 = 10;
+        initial_registers.line = 10;
 
         let opcode = LineInstruction::Special(49);
 
         let mut expected_registers = initial_registers;
         expected_registers.address += 3;
-        expected_registers.line.0 -= 3;
+        expected_registers.line -= 3;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, true);
     }
@@ -2511,15 +2502,14 @@ mod tests {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
 
         let mut initial_registers = LineRow::new(&header);
-        initial_registers.line.0 = 2;
+        initial_registers.line = 2;
 
         // -3 line advance.
         let opcode = LineInstruction::Special(13);
 
         let mut expected_registers = initial_registers;
-        // Clamp at 0. No idea if this is the best way to handle this situation
-        // or not...
-        expected_registers.line.0 = 0;
+        // Saturates in both directions.
+        expected_registers.line = 0;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, true);
     }
@@ -2530,7 +2520,7 @@ mod tests {
 
         let mut initial_registers = LineRow::new(&header);
         initial_registers.address = 1337;
-        initial_registers.line.0 = 42;
+        initial_registers.line = 42;
 
         let opcode = LineInstruction::Copy;
 
@@ -2627,7 +2617,7 @@ mod tests {
         let opcode = LineInstruction::AdvanceLine(42);
 
         let mut expected_registers = initial_registers;
-        expected_registers.line.0 += 42;
+        expected_registers.line += 42;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
     }
@@ -2638,10 +2628,25 @@ mod tests {
         let opcode = LineInstruction::AdvanceLine(42);
 
         let mut initial_registers = LineRow::new(&header);
-        initial_registers.line.0 = u64::MAX;
+        initial_registers.line = u64::MAX - 40;
 
         let mut expected_registers = initial_registers;
-        expected_registers.line.0 = 41;
+        // Saturates in both directions.
+        expected_registers.line = u64::MAX;
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
+    }
+
+    #[test]
+    fn test_exec_advance_line_min() {
+        let header = make_test_header(EndianSlice::new(&[], LittleEndian));
+        let opcode = LineInstruction::AdvanceLine(i64::MIN);
+
+        let mut initial_registers = LineRow::new(&header);
+        initial_registers.line = u64::MAX;
+
+        let mut expected_registers = initial_registers;
+        expected_registers.line = u64::MAX - (1 << 63);
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
     }
